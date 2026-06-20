@@ -28,3 +28,9 @@ def test_bench_help_entrypoint_exits_successfully() -> None:
 
     assert result.returncode == 0
     assert "usage: bench" in result.stdout
+
+
+def test_main_version_matches_package_metadata(capsys) -> None:
+    assert main(["--version"]) == 0
+
+    assert capsys.readouterr().out.strip() == "0.2.0"

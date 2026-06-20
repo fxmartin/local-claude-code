@@ -1,0 +1,9 @@
+models:
+  - name: local-example
+    type: openai
+    base_url: http://localhost:8000/v1
+    model_id: local-coding-model
+    pinned_revision: manual
+    price_per_1k_tokens:
+      input: 0.0
+      output: 0.0
