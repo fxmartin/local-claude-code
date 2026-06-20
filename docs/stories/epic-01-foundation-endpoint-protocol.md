@@ -69,9 +69,9 @@
 **Technical Notes**: Validate with a typed model (e.g. pydantic or dataclass + manual validation). Price table is dated data per backend for the cost calc in Epic-03.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 01.1-001
 **Risk Level**: Low
@@ -93,9 +93,9 @@
 **Technical Notes**: Use the streaming SSE response to time first-token arrival. Keep the Anthropic baseline as a separate adapter (Epic-03) behind the same interface.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing (mocked stream)
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing (mocked stream)
+- [x] Documentation updated
 
 **Dependencies**: 01.1-002
 **Risk Level**: Medium
@@ -113,9 +113,9 @@
 **Technical Notes**: TTFT accuracy target ~10 ms (NFR-PERF-001). Time at the stream boundary, not after JSON parsing.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing (synthetic timed stream)
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing (synthetic timed stream)
+- [x] Documentation updated
 
 **Dependencies**: 01.2-001
 **Risk Level**: Medium
@@ -132,9 +132,9 @@
 **Technical Notes**: One line per task. `results/` is gitignored. Schema stable enough that Epic-02 (pass/fail) and Epic-03 (cost) extend it additively.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 01.2-002
 **Risk Level**: Low
@@ -151,12 +151,12 @@
 **Technical Notes**: This is the Phase 0 milestone vehicle. Full-suite orchestration arrives in Epic-02 (02.2-003).
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 01.2-003
 **Risk Level**: Low
 
 ## Epic Progress
-**Completed**: 2 / 7 stories · 3 / 21 points
+**Completed**: 7 / 7 stories · 21 / 21 points

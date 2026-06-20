@@ -5,7 +5,9 @@ description = "Benchmark harness for local, cloud, and agentic coding models on 
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = [
+    "pyyaml>=6.0.2",
+]
 
 [project.scripts]
 bench = "local_code_bench.cli:main"
