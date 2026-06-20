@@ -56,13 +56,35 @@ Use these instead of their traditional counterparts. They're installed and expec
 | `cd` | `zoxide` (`z`) | Jump to frecent directories |
 | `jq` for JSON | `jq` | Installed for JSON processing |
 
+## Benchmark Protocol (v1)
+
+- **Measurement surface**: direct OpenAI-compatible `/v1/chat/completions` — single-turn,
+  controlled prompts. The real Claude Code agentic loop is **deliberately bypassed** in v1
+  (it's noisy and unreproducible); it returns in v2.
+- **Correctness**: HumanEval + MBPP, **pass@1 at temperature 0**, scored against the
+  benchmark's own unit tests run in an isolated sandbox.
+- **Speed**: per-turn TTFT / prefill tok/s / decode tok/s / total latency from the stream.
+- **Cost**: tokens × dated price table in `configs/models.yaml` ($0 for local).
+- **Outputs**: raw `results/<run>.jsonl` (re-scorable offline) → generated `LEADERBOARD.md`.
+- **Reproducibility**: fixed seed/temp, pinned model revisions, suite version, and hardware
+  tag recorded in every run's metadata.
+
+## Testing Strategy
+
+TDD per global standard. Unit-test the harness logic — **metrics parsing (TTFT/tok/s),
+pass@1 scoring, and cost calculation** — independent of any live model (mock the streamed
+response). Fault tolerance is a tested requirement: a timed-out / malformed / erroring
+backend must be scored 0 and the run must continue. Untrusted generated code runs **only**
+in the sandbox (temp dir + subprocess timeout, no network).
+
 ## GitHub Operations — Use `gh` CLI (NOT MCP)
 
 Always use `gh` CLI for all GitHub operations (issues, PRs, releases, API calls).
 
 ## Key Docs
 
-<!-- Populated after /brainstorm and /generate-epics -->
+- `REQUIREMENTS.md` — v1 Product Requirements (scope, P0/P1/P2, acceptance bar, risks)
 - `PROJECT-SEED.md` — Project seed data for downstream skills
+- `LEADERBOARD.md` — Generated benchmark rankings (created by the harness)
 - `articles/` — The two-part Medium series this project is modeled on (local Claude
   Code setup; MoE vs speculative decoding benchmark methodology)
