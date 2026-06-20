@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.eggs/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# uv
+.python-version
+
+# Benchmark artifacts (raw runs, large outputs)
+results/
+*.bench.json
+.cache/
+
+# Environment & secrets (OpenRouter / API keys)
+.env
+.env.*
+
+# Logs
+*.log
+/tmp/dflash_serve.log
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
