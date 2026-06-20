@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-06-20)
+
+### Features
+
+- Complete remaining benchmark epics ([#2](https://github.com/fxmartin/local-code-bench/pull/2),
+  [`c856a47`](https://github.com/fxmartin/local-code-bench/commit/c856a47f6d6544fdae5447fc837531a7fb91c96a))
+
+
 ## v0.4.0 (2026-06-20)
 
 ### Features
