@@ -77,6 +77,25 @@ response). Fault tolerance is a tested requirement: a timed-out / malformed / er
 backend must be scored 0 and the run must continue. Untrusted generated code runs **only**
 in the sandbox (temp dir + subprocess timeout, no network).
 
+## Releases — Automated (python-semantic-release)
+
+Releases are **fully automated on push to `main`** via `.github/workflows/release.yml`.
+There is no manual tagging. The version lives in `pyproject.toml:project.version`.
+
+- **Commits drive the bump** (Conventional Commits): `feat:` → MINOR, `fix:`/`perf:`
+  → PATCH, `BREAKING CHANGE:`/`!` → MAJOR. `docs/chore/ci/refactor/test/build` → no
+  release. A push with no releasable commits is a no-op.
+- **Pre-1.0 semantics**: `major_on_zero = false` — while on `0.x`, breaking changes
+  bump the MINOR (`0.1.0` → `0.2.0`), not `1.0.0`. Promote to `1.0.0` deliberately
+  (cut it manually or flip the flag) when the v1 acceptance bar is met.
+- **What a release does**: bumps `pyproject.toml`, updates `CHANGELOG.md`, creates the
+  `vX.Y.Z` tag, and publishes a GitHub Release. No package build / no PyPI upload.
+- **Commit-format gate**: `.github/workflows/commit-format.yml` (commitlint) rejects
+  non-conventional commits on PRs, protecting the release signal. Config:
+  `.commitlintrc.json`. PSR's own release commits push directly to `main` and are exempt.
+- **If branch protection is added** requiring PRs on `main`, the built-in `GITHUB_TOKEN`
+  may be blocked from pushing the bump commit — switch the release workflow to a PAT.
+
 ## GitHub Operations — Use `gh` CLI (NOT MCP)
 
 Always use `gh` CLI for all GitHub operations (issues, PRs, releases, API calls).

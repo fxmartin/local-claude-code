@@ -1,0 +1,42 @@
+name: Release
+
+# Automatically version, tag, and create a GitHub Release on every push to main.
+# python-semantic-release reads Conventional Commits since the last tag to decide
+# the MAJOR/MINOR/PATCH bump. Pushes with no feat:/fix:/perf:/breaking commits are
+# a no-op (no release).
+
+on:
+  push:
+    branches: [main]
+
+# Grant the built-in GITHUB_TOKEN write access so PSR can push the version-bump
+# commit + tag and create the Release. This overrides a read-only repo default.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Serialize releases so two quick pushes can't race to tag the same version.
+    concurrency:
+      group: ${{ github.workflow }}-release-${{ github.ref_name }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      # Guard against the branch moving while the workflow was queued.
+      - name: Pin branch to triggering SHA
+        run: git reset --hard ${{ github.sha }}
+
+      - name: Python Semantic Release
+        id: release
+        uses: python-semantic-release/python-semantic-release@v10.5.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          git_committer_name: "github-actions[bot]"
+          git_committer_email: "github-actions[bot]@users.noreply.github.com"

@@ -1,0 +1,26 @@
+name: Commit Format
+
+# Reject pull requests whose commits don't follow Conventional Commits.
+# This protects the release signal: python-semantic-release derives the version
+# bump from commit types, so a malformed commit could otherwise mis-trigger (or
+# silently skip) a release. Runs on PRs only — direct pushes to main (including
+# PSR's own release commits) are exempt.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commit-format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for commit range)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lint PR commit messages
+        uses: wagoid/commitlint-github-action@v6
