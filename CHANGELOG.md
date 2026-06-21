@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.6.1 (2026-06-21)
+
+### Bug Fixes
+
+- Quote numeric model revision
+  ([`ac6a4b2`](https://github.com/fxmartin/local-code-bench/commit/ac6a4b2e01ae48f267996873681d34937631ec08))
+
+
 ## v0.6.0 (2026-06-21)
 
 ### Chores
