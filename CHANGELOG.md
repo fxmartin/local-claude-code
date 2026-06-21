@@ -2,6 +2,44 @@
 
 <!-- version list -->
 
+## v0.10.0 (2026-06-21)
+
+### Bug Fixes
+
+- Disable reasoning for cloud coding runs via extra_body passthrough
+  ([`e75b8d8`](https://github.com/fxmartin/local-code-bench/commit/e75b8d84179db9d0c3eddb948c97b9861a58b1e3))
+
+### Documentation
+
+- Explain local backend comparison
+  ([`15964d9`](https://github.com/fxmartin/local-code-bench/commit/15964d9003fbbdd39f7deace8f539a1bd7bdaf23))
+
+### Features
+
+- Add canary anchor subset, EvalPlus differential suites, and per-task --timeout
+  ([`f20de33`](https://github.com/fxmartin/local-code-bench/commit/f20de339b82076e40858bec1ed625979d4c9c1f3))
+
+- Add powermetrics power/energy recording via --power
+  ([`a105a41`](https://github.com/fxmartin/local-code-bench/commit/a105a4114ea40cc67e0f24b3f30b16e3c9a39816))
+
+- Make provider request timeout configurable via BENCH_PROVIDER_TIMEOUT_SECONDS
+  ([`74f3b76`](https://github.com/fxmartin/local-code-bench/commit/74f3b767a5a94aefd0947ef52963e116fbd47b4e))
+
+- Parallelize cloud endpoint runs and cap generation tokens
+  ([`088d48d`](https://github.com/fxmartin/local-code-bench/commit/088d48d4f36a0b922b1048a8e4ea198595039f3c))
+
+- Warm up before timing, tune model caps, gate local readiness on a real completion
+  ([`b49cfa0`](https://github.com/fxmartin/local-code-bench/commit/b49cfa05aadef0d6c6707c551a1217c8c2063c42))
+
+- Warm up models before timing and gate local readiness on a real completion
+  ([`e123cc5`](https://github.com/fxmartin/local-code-bench/commit/e123cc5a421826dc5a7739bd75d56b1f579d754e))
+
+### Testing
+
+- Add coverage gate and validate local backends
+  ([`bcdfdb6`](https://github.com/fxmartin/local-code-bench/commit/bcdfdb6eff8b43eac77178fbae237118c1223b48))
+
+
 ## v0.9.1 (2026-06-21)
 
 ### Bug Fixes
