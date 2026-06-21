@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from pathlib import Path
 
@@ -55,6 +55,7 @@ def run_endpoint_suite(
     tasks: Iterable[BenchmarkTask],
     result_path: Path,
     resume: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> dict[str, int]:
     model_list = list(models)
     task_list = list(tasks)
@@ -62,20 +63,28 @@ def run_endpoint_suite(
         append_jsonl(result_path, run_metadata(models=model_list, suite=_suite_name(task_list)))
     done = completed_pairs(result_path) if resume else set()
     summary = {"passed": 0, "failed": 0, "infra_failed": 0, "skipped": 0}
+    total = len(model_list) * len(task_list)
+    current = 0
     for model in model_list:
         try:
             provider = provider_for_model(model)
         except ProviderError as exc:
             for task in task_list:
+                current += 1
                 if (model.name, task.task_id) in done:
                     summary["skipped"] += 1
+                    _emit_progress(progress, current, total, model.name, task.task_id, "skipped")
                     continue
-                append_jsonl(result_path, failure_record(model, task, str(exc), infra=True))
+                record = failure_record(model, task, str(exc), infra=True)
+                append_jsonl(result_path, record)
                 summary["infra_failed"] += 1
+                _emit_progress(progress, current, total, model.name, task.task_id, "infra-failed")
             continue
         for task in task_list:
+            current += 1
             if (model.name, task.task_id) in done:
                 summary["skipped"] += 1
+                _emit_progress(progress, current, total, model.name, task.task_id, "skipped")
                 continue
             try:
                 measurement = capture_stream_metrics(
@@ -85,13 +94,17 @@ def run_endpoint_suite(
                 score = score_completion(task, measurement.response)
                 record = endpoint_record(model, task, measurement, score.passed, score.reason)
                 summary["passed" if score.passed else "failed"] += 1
+                status = "passed" if score.passed else "failed"
             except ProviderError as exc:
                 record = failure_record(model, task, str(exc), infra=True)
                 summary["infra_failed"] += 1
+                status = "infra-failed"
             except Exception as exc:
                 record = failure_record(model, task, f"scoring failed: {exc}", infra=False)
                 summary["failed"] += 1
+                status = "failed"
             append_jsonl(result_path, record)
+            _emit_progress(progress, current, total, model.name, task.task_id, status)
     return summary
 
 
@@ -162,3 +175,16 @@ def task_to_dict(task: BenchmarkTask) -> dict[str, object]:
 def _suite_name(tasks: list[BenchmarkTask]) -> str | None:
     suites = sorted({task.suite for task in tasks})
     return ",".join(suites) if suites else None
+
+
+def _emit_progress(
+    progress: Callable[[str], None] | None,
+    current: int,
+    total: int,
+    model_name: str,
+    task_id: str,
+    status: str,
+) -> None:
+    if progress is None:
+        return
+    progress(f"[{current}/{total}] {model_name} {task_id}: {status}")

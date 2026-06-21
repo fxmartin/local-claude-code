@@ -43,13 +43,26 @@ def test_select_models_include_and_skip() -> None:
 def test_run_endpoint_suite_writes_records_and_resumes(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("local_code_bench.runner.provider_for_model", lambda _model: FakeProvider())
     path = tmp_path / "run.jsonl"
+    messages: list[str] = []
 
-    summary = run_endpoint_suite(models=[model("a")], tasks=[task()], result_path=path)
-    resumed = run_endpoint_suite(models=[model("a")], tasks=[task()], result_path=path, resume=True)
+    summary = run_endpoint_suite(
+        models=[model("a")],
+        tasks=[task()],
+        result_path=path,
+        progress=messages.append,
+    )
+    resumed = run_endpoint_suite(
+        models=[model("a")],
+        tasks=[task()],
+        result_path=path,
+        resume=True,
+        progress=messages.append,
+    )
 
     assert summary["passed"] == 1
     assert resumed["skipped"] == 1
     assert completed_pairs(path) == {("a", "t1")}
+    assert messages == ["[1/1] a t1: passed", "[1/1] a t1: skipped"]
 
 
 def test_run_endpoint_suite_records_provider_init_failure(tmp_path, monkeypatch) -> None:
@@ -58,8 +71,15 @@ def test_run_endpoint_suite_records_provider_init_failure(tmp_path, monkeypatch)
         lambda _model: (_ for _ in ()).throw(ProviderError("server down")),
     )
     path = tmp_path / "run.jsonl"
+    messages: list[str] = []
 
-    summary = run_endpoint_suite(models=[model("a")], tasks=[task()], result_path=path)
+    summary = run_endpoint_suite(
+        models=[model("a")],
+        tasks=[task()],
+        result_path=path,
+        progress=messages.append,
+    )
 
     assert summary["infra_failed"] == 1
     assert "server down" in path.read_text(encoding="utf-8")
+    assert messages == ["[1/1] a t1: infra-failed"]

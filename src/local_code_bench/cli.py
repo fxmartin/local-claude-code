@@ -127,8 +127,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 available = ", ".join(sorted(agents))
                 raise ConfigError(f"unknown agent '{args.agent}'. Available agents: {available}")
             tasks = limit_tasks(load_suite(args.suite, cache_dir=args.cache_dir), args.limit)
-            for task in tasks:
-                run_codex_task(agent=agents[args.agent], task=task, result_path=result_path)
+            for index, task in enumerate(tasks, start=1):
+                run_codex_task(
+                    agent=agents[args.agent],
+                    task=task,
+                    result_path=result_path,
+                    progress=lambda message, index=index, total=len(tasks): print(
+                        f"[{index}/{total}] {message}",
+                        flush=True,
+                    ),
+                )
             print(f"agent={args.agent} tasks={len(tasks)} results={result_path}")
             return 0
 
@@ -141,6 +149,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tasks=tasks,
                 result_path=result_path,
                 resume=args.resume,
+                progress=lambda message: print(message, flush=True),
             )
             print(f"suite={args.suite} results={result_path} summary={summary}")
             return 0

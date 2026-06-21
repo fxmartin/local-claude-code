@@ -52,9 +52,16 @@ def test_run_codex_task_with_fake_executable_scores_solution(tmp_path) -> None:
     )
     agent = AgentConfig("codex", "codex", str(fake), "workspace-write", 10)
     result_path = tmp_path / "agent.jsonl"
+    messages: list[str] = []
 
-    record = run_codex_task(agent=agent, task=task, result_path=result_path)
+    record = run_codex_task(
+        agent=agent,
+        task=task,
+        result_path=result_path,
+        progress=messages.append,
+    )
 
     assert record["passed"] is True
     assert record["final_message"] == "done"
     assert read_jsonl(result_path)[0]["passed"] is True
+    assert messages == ["codex suite/1: passed"]

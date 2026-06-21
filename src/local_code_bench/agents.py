@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -69,6 +70,7 @@ def run_codex_task(
     task: BenchmarkTask,
     result_path: Path,
     retain_workspace: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> dict[str, object]:
     workspace = materialize_task_workspace(task)
     started = perf_counter()
@@ -141,6 +143,9 @@ def run_codex_task(
         if not retain_workspace:
             shutil.rmtree(workspace.root, ignore_errors=True)
     append_jsonl(result_path, record)
+    if progress is not None:
+        status = "passed" if record.get("passed") is True else "failed"
+        progress(f"{agent.name} {task.task_id}: {status}")
     return record
 
 
