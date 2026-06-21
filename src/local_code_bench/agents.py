@@ -12,7 +12,7 @@ from pathlib import Path
 from time import perf_counter
 
 from local_code_bench.config import AgentConfig
-from local_code_bench.results import append_jsonl
+from local_code_bench.results import append_jsonl, read_jsonl
 from local_code_bench.scoring import score_completion
 from local_code_bench.tasks import BenchmarkTask
 
@@ -24,6 +24,20 @@ class AgentWorkspace:
     solution: Path
     tests: Path
     final_message: Path
+
+
+def completed_agent_pairs(result_path: Path) -> set[tuple[str, str]]:
+    if not result_path.exists():
+        return set()
+    pairs = set()
+    for record in read_jsonl(result_path):
+        if record.get("record_type") == "metadata":
+            continue
+        agent = record.get("agent")
+        task_id = record.get("task_id")
+        if record.get("run_mode") == "agent" and isinstance(agent, str) and isinstance(task_id, str):
+            pairs.add((agent, task_id))
+    return pairs
 
 
 def materialize_task_workspace(

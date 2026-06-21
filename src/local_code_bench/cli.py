@@ -7,7 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from local_code_bench.agents import run_codex_task
+from local_code_bench.agents import completed_agent_pairs, run_codex_task
 from local_code_bench.config import ConfigError, load_agents, load_models
 from local_code_bench.leaderboard import generate_leaderboard
 from local_code_bench.metrics import CompletionMeasurement, capture_stream_metrics
@@ -127,7 +127,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 available = ", ".join(sorted(agents))
                 raise ConfigError(f"unknown agent '{args.agent}'. Available agents: {available}")
             tasks = limit_tasks(load_suite(args.suite, cache_dir=args.cache_dir), args.limit)
+            done = completed_agent_pairs(result_path) if args.resume else set()
             for index, task in enumerate(tasks, start=1):
+                if (args.agent, task.task_id) in done:
+                    print(f"[{index}/{len(tasks)}] {args.agent} {task.task_id}: skipped", flush=True)
+                    continue
                 run_codex_task(
                     agent=agents[args.agent],
                     task=task,

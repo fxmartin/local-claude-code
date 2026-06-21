@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from local_code_bench.agents import build_codex_command, extract_codex_total_tokens, materialize_task_workspace
+from local_code_bench.agents import (
+    build_codex_command,
+    completed_agent_pairs,
+    extract_codex_total_tokens,
+    materialize_task_workspace,
+)
 from local_code_bench.agents import run_codex_task
 from local_code_bench.config import AgentConfig
-from local_code_bench.results import read_jsonl
+from local_code_bench.results import append_jsonl, read_jsonl
 from local_code_bench.tasks import BenchmarkTask
 
 
@@ -75,3 +80,12 @@ def test_extract_codex_total_tokens_from_stderr() -> None:
     stderr = "some log\n\ntokens used\n13,029\n"
 
     assert extract_codex_total_tokens(stderr) == 13029
+
+
+def test_completed_agent_pairs_reads_existing_results(tmp_path) -> None:
+    result_path = tmp_path / "agent.jsonl"
+    append_jsonl(result_path, {"record_type": "metadata"})
+    append_jsonl(result_path, {"run_mode": "endpoint", "model": "m", "task_id": "suite/1"})
+    append_jsonl(result_path, {"run_mode": "agent", "agent": "codex", "task_id": "suite/1"})
+
+    assert completed_agent_pairs(result_path) == {("codex", "suite/1")}
