@@ -8,7 +8,11 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
 
 from local_code_bench.config import ModelConfig
 from local_code_bench.metrics import StreamEvent
@@ -211,10 +215,16 @@ def _usage_tokens(usage: Any) -> tuple[int | None, int | None]:
 def _api_key(model: ModelConfig) -> str | None:
     if model.api_key_env is None:
         return None
+    _load_env_file()
     api_key = os.environ.get(model.api_key_env)
     if not api_key:
         raise ProviderError(f"{model.name} requires environment variable {model.api_key_env}")
     return api_key
+
+
+@cache
+def _load_env_file() -> None:
+    load_dotenv(dotenv_path=Path.cwd() / ".env")
 
 
 def _redact(message: str, secret: str | None) -> str:

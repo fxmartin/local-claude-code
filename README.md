@@ -47,8 +47,15 @@ uv run bench --suite mbpp --skip openrouter-glm-4.6 --run-file results/mbpp.json
 ```
 
 Use `OPENROUTER_API_KEY` for the OpenRouter entries and `ANTHROPIC_API_KEY` for
-the Anthropic baseline. API keys are read from the environment and are not written
-to result records. Local MLX servers are configured as OpenAI-compatible endpoints;
+the Anthropic baseline. API keys are read from the shell environment or a local
+`.env` file and are not written to result records. `.env` is gitignored.
+
+```bash
+printf 'OPENROUTER_API_KEY=sk-or-...\n' > .env
+printf 'ANTHROPIC_API_KEY=sk-ant-...\n' >> .env
+```
+
+Local MLX servers are configured as OpenAI-compatible endpoints;
 `scripts/bring-up-local.sh dflash` and `scripts/bring-up-local.sh turboquant`
 print the expected manual server commands.
 
