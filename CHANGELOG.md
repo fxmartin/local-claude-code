@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.9.0 (2026-06-21)
+
+### Chores
+
+- Sync lockfile version
+  ([`bf23203`](https://github.com/fxmartin/local-code-bench/commit/bf23203fa56abafc7b2085d3b0f63fbb86ab6e5e))
+
+### Features
+
+- Resume agent benchmark runs
+  ([`d0078cc`](https://github.com/fxmartin/local-code-bench/commit/d0078cc5b8a26cdea1540be009ac2ad6106c5759))
+
+
 ## v0.8.0 (2026-06-21)
 
 ### Chores
