@@ -177,6 +177,26 @@ Before timing a model, the runner sends one discarded warmup request so a local
 server's cold-start weight load is not billed to the first measured task. It is on
 by default; pass `--no-warmup` to skip it.
 
+### Power And Energy (macOS)
+
+`--power` samples GPU/CPU power with macOS `powermetrics` for the duration of an
+endpoint suite or sweep run, then writes a `record_type: "power"` record to the run
+JSONL with average and peak GPU watts, average combined watts, and total energy in
+joules. This is the performance-per-watt axis: two models can post similar tok/s
+while drawing very different power, which matters on a laptop you run for hours.
+
+`powermetrics` requires root, so the sampler uses `sudo -n` and fails gracefully
+(it records nothing and prints a note) if passwordless sudo is not configured. To
+use it, either grant passwordless sudo for `powermetrics` or run the whole command
+under sudo:
+
+```bash
+sudo -v && uv run bench --suite canary --model local-dflash-qwen --power
+```
+
+Pair the energy figure with the token counts already in the task records to derive
+tokens per joule offline.
+
 Use `OPENROUTER_API_KEY` for the OpenRouter entries and `ANTHROPIC_API_KEY` for
 the Anthropic baseline. API keys are read from the shell environment or a local
 `.env` file and are not written to result records. `.env` is gitignored.
@@ -223,7 +243,7 @@ uv run bench --mode sweep --input results/sweep.jsonl
 Last automated verification: 2026-06-21.
 
 ```bash
-uv run pytest        # 92 passed, 86.94% coverage, 80% coverage gate reached
+uv run pytest        # 98 passed, 85.96% coverage, 80% coverage gate reached
 uv run ruff check .  # All checks passed
 ```
 

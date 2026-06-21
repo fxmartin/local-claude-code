@@ -11,6 +11,7 @@ from local_code_bench.agents import completed_agent_pairs, run_codex_task
 from local_code_bench.config import ConfigError, load_agents, load_models
 from local_code_bench.leaderboard import generate_leaderboard
 from local_code_bench.metrics import CompletionMeasurement, capture_stream_metrics
+from local_code_bench.power import PowerSampler
 from local_code_bench.provider import ChatRequest, ProviderError, provider_for_model
 from local_code_bench.results import append_jsonl, new_run_path
 from local_code_bench.rescore import rescore_endpoint_records
@@ -83,6 +84,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="send a discarded warmup request per model before timing (avoids cold-start skew)",
     )
+    parser.add_argument(
+        "--power",
+        action="store_true",
+        help="record GPU/CPU power and energy via macOS powermetrics (needs passwordless sudo)",
+    )
     parser.add_argument("--resume", action="store_true", help="resume an existing JSONL run")
     parser.add_argument("--run-file", help="explicit JSONL run file for suite/resume modes")
     parser.add_argument("--cache-dir", default=".cache/benchmarks", help="benchmark dataset cache")
@@ -139,7 +145,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result_path = (
                     Path(args.run_file) if args.run_file else new_run_path(args.results_dir, prefix="sweep")
                 )
-                summary = run_sweep(models=models, question=question, result_path=result_path)
+                with PowerSampler(enabled=args.power) as sampler:
+                    summary = run_sweep(models=models, question=question, result_path=result_path)
+                _emit_power(sampler, result_path, requested=args.power)
                 print(f"sweep={summary} results={result_path}")
                 return 0
             for size, prompt in sweep_prompts(question):
@@ -176,17 +184,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             models = select_models(load_models(args.config), include=args.model, skip=args.skip)
             tasks = limit_tasks(load_suite(args.suite, cache_dir=args.cache_dir), args.limit)
             result_path = Path(args.run_file) if args.run_file else new_run_path(args.results_dir, prefix=args.suite)
-            summary = run_endpoint_suite(
-                models=models,
-                tasks=tasks,
-                result_path=result_path,
-                resume=args.resume,
-                progress=lambda message: print(message, flush=True),
-                max_tokens=args.max_tokens,
-                concurrency_override=args.concurrency,
-                timeout_seconds=args.timeout,
-                warmup=args.warmup,
-            )
+            with PowerSampler(enabled=args.power) as sampler:
+                summary = run_endpoint_suite(
+                    models=models,
+                    tasks=tasks,
+                    result_path=result_path,
+                    resume=args.resume,
+                    progress=lambda message: print(message, flush=True),
+                    max_tokens=args.max_tokens,
+                    concurrency_override=args.concurrency,
+                    timeout_seconds=args.timeout,
+                    warmup=args.warmup,
+                )
+            _emit_power(sampler, result_path, requested=args.power)
             print(f"suite={args.suite} results={result_path} summary={summary}")
             return 0
 
@@ -269,6 +279,29 @@ def run_single_prompt(
         },
     )
     return result_path, measurement
+
+
+def _emit_power(sampler: PowerSampler, result_path: Path, *, requested: bool) -> None:
+    summary = sampler.result()
+    if summary.available:
+        append_jsonl(result_path, summary.as_record())
+        print(
+            "power: avg_gpu={a}W max_gpu={m}W avg_combined={c}W energy={e}J over {d}s".format(
+                a=summary.avg_gpu_w,
+                m=summary.max_gpu_w,
+                c=summary.avg_combined_w,
+                e=summary.energy_j,
+                d=summary.duration_s,
+            ),
+            flush=True,
+        )
+    elif requested:
+        print(
+            "power: powermetrics produced no samples (needs macOS + passwordless sudo, "
+            "or run the whole command under sudo)",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _format_optional_seconds(seconds: float | None) -> str:

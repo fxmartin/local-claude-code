@@ -53,6 +53,24 @@ skip), and `scripts/bring-up-local.sh` gates readiness on a real completion that
 blocks through the load, so "warm" means the weights are resident. Without these,
 the first measured task silently absorbs the cold start and skews its TTFT.
 
+### Power, Energy, And The 48 GB Ceiling
+
+Speed and correctness are not the only axes. Two models can post similar tok/s
+while drawing very different power, and on a laptop run for hours, performance per
+watt and sustained thermals matter. `--power` samples GPU/CPU power via macOS
+`powermetrics` for the duration of a run and records average and peak watts plus
+total joules, so tokens-per-joule can be derived against the token counts already
+in the task records. It needs root, so it uses `sudo -n` and degrades gracefully
+when passwordless sudo is not configured.
+
+A hard operational constraint surfaced in live testing: on a 48 GB machine, dflash
+and turboquant cannot co-reside. An idle MLX server still holds its full model
+resident, so running both (dense 27B plus draft, and the 35B MoE) alongside a large
+KV cache drives the machine deep into swap, at which point high-context prefill
+numbers measure SSD latency rather than the model. Any head-to-head must bring the
+servers up one at a time, never concurrently, and the sweep ladder should be capped
+below the context size where a single model plus its KV cache starts swapping.
+
 ## Quality: Cloud-Concurrent Suites, Capped Generation
 
 For the quality comparison, run the correctness suite, but make the cloud path
