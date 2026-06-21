@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "local-code-bench"
-version = "0.5.3"
+version = "0.6.1"
 source = { editable = "." }
 dependencies = [
     { name = "python-dotenv" },

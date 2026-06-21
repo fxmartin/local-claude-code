@@ -51,3 +51,29 @@ def test_load_mbpp_from_cache(tmp_path) -> None:
 
     assert tasks[0].task_id == "mbpp/1"
     assert tasks[0].entry_point == "add"
+    assert "Define a Python function named `add`" in tasks[0].prompt
+    assert "assert add(1, 2) == 3" in tasks[0].prompt
+
+
+def test_load_mbpp_extracts_wrapped_entry_point_from_tests(tmp_path) -> None:
+    cache = tmp_path / "benchmarks"
+    cache.mkdir()
+    (cache / "sanitized-mbpp.json").write_text(
+        json.dumps(
+            [
+                {
+                    "task_id": 2,
+                    "prompt": "Write a function to find similar elements.",
+                    "test_list": [
+                        "assert set(similar_elements((3, 4, 5, 6),(5, 7, 4, 10))) == set((4, 5))"
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    tasks = load_mbpp(cache_dir=cache)
+
+    assert tasks[0].entry_point == "similar_elements"
+    assert "Define a Python function named `similar_elements`" in tasks[0].prompt

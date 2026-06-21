@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import gzip
 import json
 import urllib.request
@@ -86,23 +87,53 @@ def _parse_mbpp(row: Any) -> BenchmarkTask:
     if not isinstance(tests, list) or not tests:
         raise TaskLoadError("MBPP task missing test_list")
     entry_point = _entry_point_from_tests(tests)
+    prompt = str(row.get("prompt", row.get("text", ""))).strip()
+    tests_text = "\n".join(str(test) for test in tests)
     return BenchmarkTask(
         task_id=f"mbpp/{row.get('task_id', row.get('id'))}",
         suite="mbpp",
-        prompt=str(row.get("prompt", row.get("text", ""))),
-        test_code="\n".join(str(test) for test in tests) + "\n",
+        prompt=(
+            f"{prompt}\n\n"
+            f"Define a Python function named `{entry_point}` that satisfies these tests:\n"
+            f"{tests_text}\n"
+            "Return only the function implementation."
+        ),
+        test_code=tests_text + "\n",
         entry_point=entry_point,
         version="sanitized-mbpp-json",
     )
 
 
 def _entry_point_from_tests(tests: list[Any]) -> str:
-    first = str(tests[0])
-    marker = "assert "
-    if marker in first:
-        candidate = first.split(marker, 1)[1].split("(", 1)[0].strip()
-        if candidate.isidentifier():
-            return candidate
+    wrapper_calls = {
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "dict",
+        "float",
+        "frozenset",
+        "int",
+        "len",
+        "list",
+        "max",
+        "min",
+        "round",
+        "set",
+        "sorted",
+        "str",
+        "sum",
+        "tuple",
+    }
+    for test in tests:
+        try:
+            tree = ast.parse(str(test))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id not in wrapper_calls:
+                    return node.func.id
     return "solution"
 
 

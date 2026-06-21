@@ -25,8 +25,20 @@ def test_generate_leaderboard_from_endpoint_and_agent_records(tmp_path) -> None:
         {
             "run_mode": "agent",
             "agent": "codex",
+            "task_id": "HumanEval/0",
             "passed": False,
             "wall_time_seconds": 5.0,
+            "sandbox_mode": "workspace-write",
+        },
+    )
+    append_jsonl(
+        path,
+        {
+            "run_mode": "agent",
+            "agent": "codex",
+            "task_id": "HumanEval/0",
+            "passed": True,
+            "wall_time_seconds": 7.0,
             "sandbox_mode": "workspace-write",
         },
     )
@@ -34,7 +46,7 @@ def test_generate_leaderboard_from_endpoint_and_agent_records(tmp_path) -> None:
     content = generate_leaderboard([path], tmp_path / "LEADERBOARD.md")
 
     assert "| m1 | 1/1 |" in content
-    assert "| codex | 0/1 |" in content
+    assert "| codex | 1/1 |" in content
 
 
 def test_sweep_prompt_and_summary() -> None:

@@ -10,7 +10,7 @@ from local_code_bench.results import read_jsonl
 
 
 def generate_leaderboard(result_paths: list[Path], output_path: Path) -> str:
-    records = [record for path in result_paths for record in read_jsonl(path)]
+    records = _dedupe_latest([record for path in result_paths for record in read_jsonl(path)])
     endpoint = _endpoint_rows(records)
     agent = _agent_rows(records)
     lines = [
@@ -96,3 +96,17 @@ def _median(values: list[float]) -> float:
 
 def _fmt(value: float) -> str:
     return f"{value:.3f}"
+
+
+def _dedupe_latest(records: list[dict[str, object]]) -> list[dict[str, object]]:
+    latest: dict[tuple[str, str, str], dict[str, object]] = {}
+    passthrough: list[dict[str, object]] = []
+    for record in records:
+        run_mode = record.get("run_mode")
+        if run_mode == "endpoint" and isinstance(record.get("model"), str) and isinstance(record.get("task_id"), str):
+            latest[("endpoint", str(record["model"]), str(record["task_id"]))] = record
+        elif run_mode == "agent" and isinstance(record.get("agent"), str) and isinstance(record.get("task_id"), str):
+            latest[("agent", str(record["agent"]), str(record["task_id"]))] = record
+        elif record.get("record_type") != "metadata":
+            passthrough.append(record)
+    return [*latest.values(), *passthrough]
