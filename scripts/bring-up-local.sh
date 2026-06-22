@@ -10,7 +10,7 @@ case "$backend" in
   dflash)
     port="${DFLASH_PORT:-8000}"
     command_var="DFLASH_COMMAND"
-    example="dflash serve --model qwen3.6-27b --port ${port}"
+    example="dflash serve --model mlx-community/Qwen3.6-27B-4bit --port ${port}"
     ;;
   turboquant)
     port="${TURBOQUANT_PORT:-8002}"
@@ -57,6 +57,7 @@ if [[ -z "$command" ]]; then
   echo "  export $command_var='$example'" >&2
   exit 1
 fi
+command="$(printf '%s' "$command" | tr '\n\t' ' ')"
 
 log_file="${TMPDIR:-/tmp}/local-code-bench-${backend}.log"
 echo "starting $backend: $command"

@@ -97,7 +97,7 @@ configured `local-dflash-qwen` endpoint.
 **Setup**:
 
 ```bash
-export DFLASH_COMMAND='dflash serve --model qwen3.6-27b --port 8000'
+export DFLASH_COMMAND='dflash serve --model mlx-community/Qwen3.6-27B-4bit --port 8000'
 scripts/bring-up-local.sh dflash
 ```
 

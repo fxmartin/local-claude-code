@@ -160,6 +160,9 @@ run_sweep_for_backend() {
   model="$(model_for_backend "$backend")"
   run_file="$(run_file_for_backend "$backend")"
   mkdir -p "$(dirname "$run_file")"
+  # Sweep mode appends, so start from a clean file: a stale run file would stack
+  # old (possibly swap-contaminated) records into this run's summary.
+  rm -f "$run_file"
 
   local extra_args=()
   if [[ "${POWER:-0}" == "1" ]]; then
