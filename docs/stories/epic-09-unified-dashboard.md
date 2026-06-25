@@ -7,12 +7,13 @@
 **Success Metrics**: From one `bench dashboard` command FX can, in one browser tab, see which engines are installed/running/healthy and control them, compose and launch a benchmark by choosing a model, an inferencer, and one or more available suites, watch that run's live progress (passed/failed/remaining, speed, cost), and see the completed run appear in the results views — without editing config by hand, without manually juggling servers, and with exactly one inference server ever active during a run.
 
 ## Epic Scope
-**Total Stories**: 6 | **Total Points**: 24 | **MVP Stories**: 0 (Should Have / v1.x)
+**Total Stories**: 8 | **Total Points**: 32 | **MVP Stories**: 0 (Should Have / v1.x)
 
 ## Decisions Locked With FX
 - **Deliverable for this pass**: epic + stories only (no code), consistent with how Epic-08 was authored.
 - **Relation to existing epics**: a **new Epic-09** that depends on and composes Epic-07 (results) and Epic-08 (inferencers); both remain intact as building blocks. Epic-09 owns only the unifying shell, the benchmark launcher, run monitoring, the suite catalog, and cross-section cohesion/safety.
 - **Carried-over timing rules** (from Epic-08): full lifecycle for headless servers, detect-only for GUI apps, and a hard one-active mutual-exclusion rule enforced through `start_exclusive` — every benchmark launched from the dashboard goes through it.
+- **Chat: build native, do not embed** (Feature 9.5): a thin chat panel over the existing OpenAI-compatible streaming (`provider.py`) is preferred to embedding a heavyweight external app (Open WebUI). Embedding would add a Node/Svelte + DB/auth service on its own port, duplicate the dashboard's model/inferencer selection, and break the stdlib-first, self-contained, no-CDN convention. Chat is fundamentally a thin client over streaming the harness already does.
 
 ## Features in This Epic
 
@@ -156,5 +157,52 @@
 **Dependencies**: 09.1-001, 09.4-001
 **Risk Level**: Medium
 
+### Feature 9.5: Model Chat / Interactive Testing
+
+#### Stories
+
+##### Story 09.7-001: Streaming chat endpoint
+**User Story**: As FX, I want to send chat messages to the selected model through the dashboard and stream the reply so that I can quickly smoke-test a model's behaviour without writing a benchmark.
+**Priority**: Should Have
+**Story Points**: 5
+
+**Acceptance Criteria**:
+- **Given** a selected model (and the active inferencer) **When** I post a multi-turn message list to the chat endpoint **Then** the reply is streamed back token-by-token via the existing OpenAI-compatible provider.
+- **Given** an optional system prompt, temperature, and max-tokens **When** I send a chat turn **Then** they are applied to the request; defaults are sensible and the conversation preserves prior turns.
+- **Given** a chat targets a local model **When** another inferencer is active **Then** the one-active invariant is respected — chat talks to the running engine and does not silently start a second server.
+- **Given** a streaming reply in progress **When** I stop it **Then** the stream is cancelled cleanly.
+- **Given** any chat response **When** served **Then** it binds localhost only and leaks no API keys, `.env` contents, or host paths.
+
+**Technical Notes**: A `POST /api/chat` handler on the Epic-09 dashboard server that builds a multi-message `ChatRequest` and streams through `provider_for_model` / `OpenAIStreamingProvider` (`src/local_code_bench/provider.py`) — reuse, not reimplementation. Stream Server-Sent Events to the browser so the existing token-by-token parsing path is mirrored client-side. Multi-turn state lives client-side and is posted each turn (no server DB), keeping with the stdlib-first, single-user model. Reuse the dashboard's response-sanitization (09.6-001). Test with a monkeypatched provider (as `tests/test_provider.py` does) asserting streamed chunks, applied params, and multi-turn message assembly — no live model.
+
+**Definition of Done**:
+- [ ] Code implemented and peer reviewed
+- [ ] Tests written and passing
+- [ ] Documentation updated
+
+**Dependencies**: 09.1-001, 01.1-003 (OpenAI-compatible provider)
+**Risk Level**: Medium
+
+##### Story 09.7-002: Chat panel UI
+**User Story**: As FX, I want a Chat section in the dashboard with a message pane and model/inferencer picker so that testing a model is a few clicks, in the same surface as launching benchmarks.
+**Priority**: Should Have
+**Story Points**: 3
+
+**Acceptance Criteria**:
+- **Given** the dashboard **When** I open the Chat section **Then** I can pick a model and inferencer (reusing the launcher's selectors) and see a multi-turn message pane.
+- **Given** I type a message and send **When** the reply streams **Then** it renders incrementally with a visible stop control, and the conversation scrolls as a normal chat.
+- **Given** controls for system prompt, temperature, and max-tokens **When** I adjust them **Then** subsequent turns use the new values.
+- **Given** the page **When** served **Then** it is self-contained (inlined CSS/JS, no CDN/Node build) and localhost-only, consistent with the rest of the dashboard.
+
+**Technical Notes**: A new Chat section in the unified dashboard page (09.1-001) that is a thin client over `POST /api/chat` (09.7-001), reusing the launcher's model/inferencer selectors (09.2-001). Keep markdown/rendering minimal — the goal is a fast smoke test, not a full chat product. No new front-end dependencies.
+
+**Definition of Done**:
+- [ ] Code implemented and peer reviewed
+- [ ] Tests written and passing
+- [ ] Documentation updated
+
+**Dependencies**: 09.7-001, 09.2-001
+**Risk Level**: Low
+
 ## Epic Progress
-**Completed**: 0 / 6 stories · 0 / 24 points
+**Completed**: 0 / 8 stories · 0 / 32 points
