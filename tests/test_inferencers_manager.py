@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
 from pathlib import Path
 
@@ -305,3 +306,170 @@ def test_stop_escalates_to_sigkill_after_grace(tmp_path, monkeypatch) -> None:
     assert signal.SIGTERM in signals
     assert signal.SIGKILL in signals
     assert not (tmp_path / "dflash.json").exists()
+
+
+# --- start: already-running short-circuit and progress ----------------------
+
+
+def test_start_returns_current_when_already_running_and_healthy(tmp_path, monkeypatch) -> None:
+    cfg = _server_cfg()
+    _write_state_file(tmp_path, "dflash", pid=4321, port=8000)
+    spawned: list = []
+    monkeypatch.setattr(manager.subprocess, "Popen", lambda *a, **k: spawned.append(1))
+    monkeypatch.setattr(manager.detect, "is_installed", lambda c: True)
+    monkeypatch.setattr(manager, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(manager, "health_check", lambda url, timeout=1.0: True)
+
+    status = manager.start(cfg, tmp_path)
+
+    assert status.running is True
+    assert status.healthy is True
+    assert status.pid == 4321
+    assert spawned == []  # already up: no new process spawned
+
+
+def test_start_reports_progress_on_success(tmp_path, monkeypatch) -> None:
+    cfg = _server_cfg()
+    created: list = []
+    monkeypatch.setattr(manager.subprocess, "Popen", _make_popen(created))
+    monkeypatch.setattr(manager, "health_check", lambda url, timeout=1.0: True)
+    monkeypatch.setattr(manager.detect, "is_installed", lambda c: True)
+    messages: list = []
+
+    manager.start(cfg, tmp_path, timeout=5.0, poll_interval=0.0, progress=messages.append)
+
+    assert any("starting dflash" in m for m in messages)
+    assert any("healthy on port 8000" in m for m in messages)
+
+
+# --- await_health: process death and polling --------------------------------
+
+
+def test_start_failure_when_process_dies_during_poll(tmp_path, monkeypatch) -> None:
+    cfg = _server_cfg()
+
+    class _DeadProc:
+        pid = 4321
+
+        def __init__(self, command, **kwargs) -> None:
+            stdout = kwargs.get("stdout")
+            if stdout is not None:
+                stdout.write("crashed on startup\n")
+                stdout.flush()
+
+        def poll(self):
+            return 1  # already exited
+
+    monkeypatch.setattr(manager.subprocess, "Popen", _DeadProc)
+    monkeypatch.setattr(manager, "health_check", lambda url, timeout=1.0: False)
+    monkeypatch.setattr(manager.detect, "is_installed", lambda c: True)
+    monkeypatch.setattr(manager, "_terminate_group", lambda pid, grace: None)
+
+    with pytest.raises(InferencerError) as exc:
+        manager.start(cfg, tmp_path, timeout=30.0, poll_interval=0.0)
+
+    assert "crashed on startup" in str(exc.value)
+    assert not (tmp_path / "dflash.json").exists()
+
+
+def test_await_health_sleeps_then_succeeds(tmp_path, monkeypatch) -> None:
+    cfg = _server_cfg()
+    created: list = []
+    monkeypatch.setattr(manager.subprocess, "Popen", _make_popen(created))
+    monkeypatch.setattr(manager.detect, "is_installed", lambda c: True)
+    monkeypatch.setattr(manager.time, "sleep", lambda s: None)
+    health_results = iter([False, True])
+    monkeypatch.setattr(manager, "health_check", lambda url, timeout=1.0: next(health_results))
+
+    status = manager.start(cfg, tmp_path, timeout=5.0, poll_interval=0.5)
+
+    assert status.healthy is True
+
+
+# --- stop: progress and non-int pid -----------------------------------------
+
+
+def test_stop_reports_progress(tmp_path, monkeypatch) -> None:
+    cfg = _server_cfg()
+    _write_state_file(tmp_path, "dflash", pid=4321, port=8000)
+    monkeypatch.setattr(manager, "_terminate_group", lambda pid, grace: None)
+    messages: list = []
+
+    manager.stop(cfg, tmp_path, progress=messages.append)
+
+    assert any("stopping dflash (pid 4321)" in m for m in messages)
+
+
+def test_stop_with_non_int_pid_skips_signal_and_removes_state(tmp_path, monkeypatch) -> None:
+    payload = {"name": "dflash", "pid": "not-an-int", "port": 8000}
+    (tmp_path / "dflash.json").write_text(json.dumps(payload), encoding="utf-8")
+    killpg_calls: list = []
+    monkeypatch.setattr(manager.os, "killpg", lambda pid, sig: killpg_calls.append((pid, sig)))
+
+    manager.stop(_server_cfg(), tmp_path)
+
+    assert killpg_calls == []
+    assert not (tmp_path / "dflash.json").exists()
+
+
+# --- _terminate_group internals ---------------------------------------------
+
+
+def test_terminate_group_returns_when_sigterm_fails(monkeypatch) -> None:
+    def boom(pid, sig):
+        raise ProcessLookupError()
+
+    monkeypatch.setattr(manager.os, "killpg", boom)
+    pid_checks: list = []
+    monkeypatch.setattr(manager, "_pid_alive", lambda pid: pid_checks.append(pid) or True)
+
+    manager._terminate_group(4321, grace_period=5.0)
+
+    assert pid_checks == []  # bailed out before any liveness probe
+
+
+def test_terminate_group_exits_when_process_dies_within_grace(monkeypatch) -> None:
+    monkeypatch.setattr(manager.os, "killpg", lambda pid, sig: None)
+    monkeypatch.setattr(manager.time, "sleep", lambda s: None)
+    times = iter([0.0, 0.5, 1.5])
+    monkeypatch.setattr(manager.time, "monotonic", lambda: next(times))
+    alive = iter([True, False])
+    monkeypatch.setattr(manager, "_pid_alive", lambda pid: next(alive))
+
+    manager._terminate_group(4321, grace_period=1.0)  # no SIGKILL: process gone after grace
+
+
+def test_terminate_group_swallows_sigkill_oserror(monkeypatch) -> None:
+    signals: list = []
+
+    def killpg(pid, sig):
+        signals.append(sig)
+        if sig == signal.SIGKILL:
+            raise ProcessLookupError()
+
+    monkeypatch.setattr(manager.os, "killpg", killpg)
+    monkeypatch.setattr(manager, "_pid_alive", lambda pid: True)
+
+    manager._terminate_group(4321, grace_period=0.0)  # SIGKILL raises, swallowed
+
+    assert signal.SIGKILL in signals
+
+
+# --- small private helpers --------------------------------------------------
+
+
+def test_pid_alive_true_for_current_process() -> None:
+    assert manager._pid_alive(os.getpid()) is True
+
+
+def test_read_state_returns_none_for_malformed_json(tmp_path) -> None:
+    (tmp_path / "dflash.json").write_text("{not json", encoding="utf-8")
+
+    status = manager.status(_server_cfg(), tmp_path)
+
+    assert status.running is False
+    assert manager._read_state(tmp_path, "dflash") is None
+
+
+def test_log_tail_returns_empty_on_unreadable_path(tmp_path) -> None:
+    assert manager._log_tail(tmp_path / "missing.log") == ""
