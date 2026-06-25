@@ -277,7 +277,22 @@ output embeds its own CSS and dashboard data — no Node/Vite build step and no 
 fetches — so you can commit it to the repo and open it directly in a browser:
 
 ```bash
+# Integrated CLI (lives beside leaderboard, rescore, and sweep):
+uv run bench --mode dashboard --input results/run.jsonl --output results/dashboard.html
+
+# Or the generator-only module entry point:
 uv run python -m local_code_bench.dashboard --input results/run.jsonl --output docs/dashboard.html
+```
+
+Static generation is the default path; `--output` defaults to
+`results/dashboard.html`. Add `--serve` to start a localhost HTTP server instead
+of writing a file — it re-reads the result files on every request, so refreshing
+the browser shows records a benchmark run is still appending without a restart.
+`--host`/`--port` (default `127.0.0.1:8770`) tune the bind address; the server
+stays localhost-only and read-only:
+
+```bash
+uv run bench --mode dashboard --input results/run.jsonl --serve --port 8770
 ```
 
 Pass `--input` more than once to merge several result files into one view. The
@@ -289,9 +304,6 @@ paths never reach the committed artifact. The committed copy lives at
 server required) and regenerate it with the command above when results change. The
 default empty-state copy renders the dashboard shell until you regenerate it from
 your own runs (results JSONL is gitignored).
-
-> The integrated `bench --mode dashboard` command (with a live `--serve` option)
-> is delivered in story 07.2-002.
 
 ## Inferencer Lifecycle
 

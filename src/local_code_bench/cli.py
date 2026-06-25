@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["endpoint", "agent", "sweep", "leaderboard", "rescore"],
+        choices=["endpoint", "agent", "sweep", "leaderboard", "rescore", "dashboard"],
         default="endpoint",
     )
     parser.add_argument(
@@ -113,6 +113,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agents-config", default="configs/agents.yaml", help="path to agents YAML")
     parser.add_argument("--input", nargs="*", help="input JSONL files for leaderboard/sweep summaries")
     parser.add_argument("--output", help="output file for generated leaderboard")
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="dashboard mode: serve a live localhost dashboard instead of writing static HTML",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="dashboard serve bind host (localhost only)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8770,
+        help="dashboard serve bind port",
+    )
     parser.add_argument(
         "--manage-inferencers",
         action="store_true",
@@ -218,6 +234,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             generate_leaderboard(inputs, output)
             print(f"wrote {output}")
             return 0
+
+        if args.mode == "dashboard":
+            return run_dashboard_mode(args, parser)
 
         if args.mode == "rescore":
             if not args.input or not args.suite:
@@ -340,6 +359,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     parser.print_help()
+    return 0
+
+
+def run_dashboard_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Generate or serve the results dashboard from stored result JSONL.
+
+    Static generation is the default path (write a self-contained HTML file);
+    ``--serve`` instead starts a localhost HTTP server that re-reads the result
+    files on every request, so a still-running benchmark's appended records show
+    up on refresh. Both share one interpretation of the JSONL via the dashboard
+    model. Missing ``--input`` is an argparse usage error (exit 2), consistent
+    with the other input-driven modes.
+    """
+
+    inputs = [Path(item) for item in args.input or []]
+    if not inputs:
+        parser.error("--mode dashboard requires --input")
+
+    if args.serve:
+        from local_code_bench.dashboard_server import serve_dashboard
+
+        serve_paths: list[str | Path] = [path for path in inputs]
+        serve_dashboard(
+            serve_paths,
+            host=args.host,
+            port=args.port,
+            progress=lambda message: print(message, flush=True),
+        )
+        return 0
+
+    from local_code_bench.dashboard import generate_dashboard
+
+    output = Path(args.output or "results/dashboard.html")
+    generate_dashboard(inputs, output)
+    print(f"wrote {output}")
     return 0
 
 
