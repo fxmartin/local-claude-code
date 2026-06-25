@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from local_code_bench.dashboard_model import (
     build_dashboard_data,
+    build_run_summary,
     load_dashboard_data,
 )
 from local_code_bench.results import append_jsonl
@@ -360,6 +361,110 @@ def test_non_string_raw_response_previews_to_empty() -> None:
     agg = build_dashboard_data([record]).endpoint_models[0]
 
     assert agg.tasks[0].raw_response_preview == ""
+
+
+# ---------------------------------------------------------------------------
+# Run history (Story 07.4-001) — per-file run summaries for run comparison
+# ---------------------------------------------------------------------------
+
+
+def test_build_run_summary_summarizes_models_suites_and_speed() -> None:
+    records = [
+        {"record_type": "metadata", "timestamp": "2026-06-25T10:00:00+00:00"},
+        _endpoint_record(task_id="HumanEval/0", passed=True, metrics={"latency_seconds": 1.0}),
+        _endpoint_record(task_id="HumanEval/1", passed=False, metrics={"latency_seconds": 3.0}),
+    ]
+
+    summary = build_run_summary("run.jsonl", records)
+
+    assert summary.source == "run.jsonl"
+    assert summary.timestamp == "2026-06-25T10:00:00+00:00"
+    assert summary.models == ("m1",)
+    assert summary.agents == ()
+    assert summary.suites == ("humaneval",)
+    assert summary.task_count == 2
+    assert summary.passed == 1
+    assert summary.pass_rate == 0.5
+    # Median speed comes from the underlying task latencies (1.0, 3.0) -> 2.0.
+    assert summary.median_latency_seconds == 2.0
+    assert summary.median_wall_time_seconds is None
+
+
+def test_build_run_summary_keeps_agent_wall_time_separate() -> None:
+    records = [
+        {
+            "run_mode": "agent",
+            "agent": "codex",
+            "suite": "mbpp",
+            "task_id": "Mbpp/1",
+            "passed": True,
+            "wall_time_seconds": 8.0,
+        },
+        {
+            "run_mode": "agent",
+            "agent": "codex",
+            "suite": "mbpp",
+            "task_id": "Mbpp/2",
+            "passed": True,
+            "wall_time_seconds": 4.0,
+        },
+    ]
+
+    summary = build_run_summary("agent-run.jsonl", records)
+
+    assert summary.agents == ("codex",)
+    assert summary.models == ()
+    assert summary.suites == ("mbpp",)
+    assert summary.task_count == 2
+    assert summary.pass_rate == 1.0
+    assert summary.median_wall_time_seconds == 6.0
+    assert summary.median_latency_seconds is None
+
+
+def test_build_run_summary_dedupes_latest_attempt_per_task() -> None:
+    records = [
+        _endpoint_record(task_id="HumanEval/0", passed=False),
+        _endpoint_record(task_id="HumanEval/0", passed=True),
+    ]
+
+    summary = build_run_summary("run.jsonl", records)
+
+    assert summary.task_count == 1
+    assert summary.passed == 1
+
+
+def test_load_dashboard_data_builds_run_history_per_file(tmp_path) -> None:
+    older = tmp_path / "run-a.jsonl"
+    append_jsonl(older, {"record_type": "metadata", "timestamp": "2026-06-24T09:00:00+00:00"})
+    append_jsonl(older, _endpoint_record(task_id="HumanEval/0", passed=True))
+
+    newer = tmp_path / "run-b.jsonl"
+    append_jsonl(newer, {"record_type": "metadata", "timestamp": "2026-06-25T09:00:00+00:00"})
+    append_jsonl(newer, _endpoint_record(model="m2", task_id="HumanEval/0", passed=False))
+
+    data = load_dashboard_data([newer, older])
+
+    assert len(data.runs) == 2
+    # Runs sort by timestamp so history reads chronologically.
+    assert [run.source for run in data.runs] == ["run-a.jsonl", "run-b.jsonl"]
+    assert data.runs[0].timestamp == "2026-06-24T09:00:00+00:00"
+    assert data.runs[1].models == ("m2",)
+
+
+def test_load_dashboard_data_run_source_is_basename_only(tmp_path) -> None:
+    path = tmp_path / "run.jsonl"
+    append_jsonl(path, _endpoint_record(task_id="HumanEval/0", passed=True))
+
+    data = load_dashboard_data([path])
+
+    assert data.runs[0].source == "run.jsonl"
+    assert str(tmp_path) not in data.runs[0].source
+
+
+def test_load_dashboard_data_no_runs_for_missing_file(tmp_path) -> None:
+    data = load_dashboard_data([tmp_path / "absent.jsonl"])
+
+    assert data.runs == ()
 
 
 def test_load_dashboard_data_skips_blank_lines_and_flags_non_object_lines(tmp_path) -> None:

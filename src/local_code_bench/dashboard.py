@@ -24,6 +24,7 @@ from local_code_bench.dashboard_model import (
     DashboardData,
     DataQualityWarning,
     EndpointModelAggregate,
+    RunSummary,
     SweepPoint,
     load_dashboard_data,
 )
@@ -86,6 +87,7 @@ def _safe_data(data: DashboardData) -> dict[str, object]:
         "endpoint_models": [_safe_endpoint(model) for model in data.endpoint_models],
         "agent_runs": [_safe_agent(run) for run in data.agent_runs],
         "sweep_points": [_safe_sweep(point) for point in data.sweep_points],
+        "runs": [_safe_run(run) for run in data.runs],
         "warnings": [_safe_warning(warning) for warning in data.warnings],
     }
 
@@ -121,6 +123,22 @@ def _safe_agent(run: AgentAggregate) -> dict[str, object]:
         "failure_count": run.failure_count,
         "median_wall_time_seconds": run.median_wall_time_seconds,
         "sandbox_mode": run.sandbox_mode,
+    }
+
+
+def _safe_run(run: RunSummary) -> dict[str, object]:
+    # ``source`` is already a basename (set by the loader), so no host path leaks.
+    return {
+        "source": run.source,
+        "timestamp": run.timestamp,
+        "models": list(run.models),
+        "agents": list(run.agents),
+        "suites": list(run.suites),
+        "task_count": run.task_count,
+        "passed": run.passed,
+        "pass_rate": round(run.pass_rate, 6),
+        "median_latency_seconds": run.median_latency_seconds,
+        "median_wall_time_seconds": run.median_wall_time_seconds,
     }
 
 
@@ -163,6 +181,10 @@ th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #e5
 th { font-weight: 600; color: #424245; white-space: nowrap; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .empty { color: #6e6e73; font-style: italic; padding: 0.5rem 0; }
+th.sortable-th { cursor: pointer; user-select: none; }
+th.sortable-th:hover { text-decoration: underline; }
+.filter { margin-bottom: 0.75rem; padding: 0.35rem 0.55rem; width: 22rem; max-width: 100%;
+  border: 1px solid #d2d2d7; border-radius: 8px; font-size: 0.9rem; }
 .warnings { background: #fff8e1; border: 1px solid #f0d98c; }
 .warnings li { color: #6b5900; }
 .chart-svg { width: 100%; max-width: 520px; height: auto; display: block; }
@@ -184,7 +206,58 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .chart-svg .tick { fill: #aeaeb2; }
   .chart-svg .axis-title { fill: #d1d1d6; }
   .chart-note { color: #f0d98c; }
+  .filter { background: #1c1c1e; border-color: #48484a; color: #f5f5f7; }
 }
+""".strip()
+
+
+# Progressive enhancement: the server-rendered tables are fully readable without
+# JavaScript; this inline script adds client-side filtering and column sorting on
+# top of the existing DOM (no external assets, no embedded-data dependency).
+_ENHANCE_JS = """
+(function () {
+  function numeric(text) {
+    var cleaned = text.replace(/[^0-9eE.+-]/g, "");
+    if (cleaned === "" || cleaned === "-" || cleaned === "—") return NaN;
+    return parseFloat(cleaned);
+  }
+  function rowsOf(table) {
+    return Array.prototype.slice.call(table.tBodies[0] ? table.tBodies[0].rows : []);
+  }
+  var filterInput = document.getElementById("leaderboard-filter");
+  var leaderboard = document.getElementById("leaderboard-table");
+  if (filterInput && leaderboard) {
+    filterInput.addEventListener("input", function () {
+      var q = filterInput.value.toLowerCase();
+      rowsOf(leaderboard).forEach(function (row) {
+        row.style.display = row.textContent.toLowerCase().indexOf(q) >= 0 ? "" : "none";
+      });
+    });
+  }
+  var directions = new WeakMap();
+  document.querySelectorAll("table.sortable").forEach(function (table) {
+    if (!table.tHead) return;
+    table.tHead.addEventListener("click", function (event) {
+      var th = event.target.closest("th[data-sort-key]");
+      if (!th) return;
+      var key = parseInt(th.getAttribute("data-sort-key"), 10);
+      var state = directions.get(table) || {};
+      var dir = state[key] === 1 ? -1 : 1;
+      state[key] = dir;
+      directions.set(table, state);
+      var rows = rowsOf(table);
+      rows.sort(function (a, b) {
+        var x = a.cells[key].textContent.trim();
+        var y = b.cells[key].textContent.trim();
+        var nx = numeric(x), ny = numeric(y);
+        if (!isNaN(nx) && !isNaN(ny)) return (nx - ny) * dir;
+        return x.localeCompare(y) * dir;
+      });
+      var tbody = table.tBodies[0];
+      rows.forEach(function (row) { tbody.appendChild(row); });
+    });
+  });
+})();
 """.strip()
 
 
@@ -199,6 +272,7 @@ def _render_html(data: DashboardData) -> str:
         _endpoint_section(data.endpoint_models),
         render_charts_section(data.endpoint_models, data.sweep_points),
         _agent_section(data.agent_runs),
+        _run_history_section(data.runs),
         _sweep_section(data.sweep_points),
     ]
     body = "\n".join(section for section in sections if section)
@@ -218,6 +292,7 @@ def _render_html(data: DashboardData) -> str:
         "result JSONL. Open directly in a browser — no server required.</p>\n"
         f"{body}\n"
         f'<script id="dashboard-data" type="application/json">{embedded}</script>\n'
+        f"<script>\n{_ENHANCE_JS}\n</script>\n"
         "</body>\n"
         "</html>\n"
     )
@@ -249,7 +324,14 @@ def _endpoint_section(models: tuple[EndpointModelAggregate, ...]) -> str:
         ]
         for model in models
     ]
-    return _section("Endpoint Models", headers, rows, "No endpoint records found.")
+    return _section(
+        "Endpoint Models",
+        headers,
+        rows,
+        "No endpoint records found.",
+        table_id="leaderboard-table",
+        filter_id="leaderboard-filter",
+    )
 
 
 def _agent_section(runs: tuple[AgentAggregate, ...]) -> str:
@@ -282,6 +364,39 @@ def _sweep_section(points: tuple[SweepPoint, ...]) -> str:
     return _section("Sweep — Prefill vs Context", headers, rows, "No sweep records found.")
 
 
+def _run_history_section(runs: tuple[RunSummary, ...]) -> str:
+    headers = [
+        "Run",
+        "Timestamp",
+        "Models / Agents",
+        "Suites",
+        "Tasks",
+        "pass@1",
+        "Median Speed (s)",
+    ]
+    rows = []
+    for run in runs:
+        actors = ", ".join((*run.models, *run.agents)) or "—"
+        # Endpoint latency is the primary speed signal; agent runs fall back to wall time.
+        speed = (
+            run.median_latency_seconds
+            if run.median_latency_seconds is not None
+            else run.median_wall_time_seconds
+        )
+        rows.append(
+            [
+                _cell(run.source),
+                _cell(run.timestamp or "—"),
+                _cell(actors),
+                _cell(", ".join(run.suites) or "—"),
+                _num(str(run.task_count)),
+                _num(f"{run.passed}/{run.task_count}"),
+                _num(_fmt(speed, 3)),
+            ]
+        )
+    return _section("Run History", headers, rows, "No runs found.")
+
+
 def _warnings_section(warnings: tuple[DataQualityWarning, ...]) -> str:
     if not warnings:
         return ""
@@ -295,26 +410,59 @@ def _warning_label(warning: DataQualityWarning) -> str:
     return f"{location}: {warning.message}" if location else warning.message
 
 
-def _section(title: str, headers: list[str], rows: list[list[str]], empty: str) -> str:
-    head = "".join(
-        f'<th class="num">{html.escape(header)}</th>'
-        if _is_num_header(header)
-        else f"<th>{html.escape(header)}</th>"
-        for header in headers
+def _section(
+    title: str,
+    headers: list[str],
+    rows: list[list[str]],
+    empty: str,
+    *,
+    table_id: str | None = None,
+    filter_id: str | None = None,
+) -> str:
+    # When a table_id is given the table is enhanced client-side (sort + filter);
+    # headers carry a stable column index so the inline script can reorder rows.
+    sortable = table_id is not None
+    head = "".join(_header_cell(header, index, sortable) for index, header in enumerate(headers))
+    table_attrs = f' id="{html.escape(table_id)}" class="sortable"' if table_id else ""
+    filter_html = (
+        f'<input id="{html.escape(filter_id)}" class="filter" type="search" '
+        f'placeholder="Filter rows…" aria-label="Filter {html.escape(title)}">'
+        if filter_id
+        else ""
     )
     if rows:
         body = "".join("<tr>" + "".join(cells) + "</tr>" for cells in rows)
-        table = f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+        table = f"<table{table_attrs}><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
     else:
         table = (
-            f"<table><thead><tr>{head}</tr></thead></table>"
+            f"<table{table_attrs}><thead><tr>{head}</tr></thead></table>"
             f'<p class="empty">{html.escape(empty)}</p>'
         )
-    return f"<section><h2>{html.escape(title)}</h2>{table}</section>"
+    return f"<section><h2>{html.escape(title)}</h2>{filter_html}{table}</section>"
+
+
+def _header_cell(header: str, index: int, sortable: bool) -> str:
+    classes = "num" if _is_num_header(header) else ""
+    if sortable:
+        classes = (classes + " sortable-th").strip()
+        attrs = f' data-sort-key="{index}"'
+    else:
+        attrs = ""
+    class_attr = f' class="{classes}"' if classes else ""
+    return f"<th{class_attr}{attrs}>{html.escape(header)}</th>"
 
 
 def _is_num_header(header: str) -> bool:
-    return header not in {"Model", "Suite", "Agent", "Sandbox"}
+    return header not in {
+        "Model",
+        "Suite",
+        "Agent",
+        "Sandbox",
+        "Run",
+        "Timestamp",
+        "Models / Agents",
+        "Suites",
+    }
 
 
 def _fmt(value: float | None, places: int) -> str:

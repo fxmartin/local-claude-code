@@ -18,6 +18,7 @@ from local_code_bench.dashboard_server import (
     dashboard_payload,
     handle_request,
     make_server,
+    render_page,
     serve_dashboard,
 )
 from local_code_bench.results import append_jsonl
@@ -81,6 +82,86 @@ def test_dashboard_payload_passes_through_data_quality_warnings(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 # data_action — live re-read on every call
 # ---------------------------------------------------------------------------
+
+
+def test_dashboard_payload_includes_run_history(tmp_path: Path) -> None:
+    path = tmp_path / "run.jsonl"
+    append_jsonl(path, _endpoint_record("m1", "HumanEval/0", passed=True))
+
+    payload = dashboard_payload([path])
+
+    assert "runs" in payload
+    # The payload round-trips cleanly through JSON (tuples become lists over HTTP).
+    runs = json.loads(json.dumps(payload))["runs"]
+    assert runs[0]["source"] == "run.jsonl"
+    assert runs[0]["task_count"] == 1
+
+
+def test_dashboard_payload_exposes_per_task_drilldown_fields(tmp_path: Path) -> None:
+    path = tmp_path / "run.jsonl"
+    append_jsonl(
+        path,
+        _endpoint_record(
+            "m1",
+            "HumanEval/0",
+            passed=False,
+            failure_reason="assertion failed",
+            raw_response="def f():\n    return 0\n",
+        ),
+    )
+
+    payload = dashboard_payload([path])
+    task = payload["endpoint_models"][0]["tasks"][0]
+
+    # Everything the drilldown view renders is available from the live API.
+    assert task["task_id"] == "HumanEval/0"
+    assert task["passed"] is False
+    assert task["failure_reason"] == "assertion failed"
+    assert task["latency_seconds"] == 1.5
+    assert task["cost_usd"] == 0.01
+    assert task["prompt_tokens"] == 100
+    assert task["completion_tokens"] == 40
+    assert "return 0" in task["raw_response_preview"]
+
+
+# ---------------------------------------------------------------------------
+# render_page — leaderboard sort/filter, run history, per-task drilldown
+# ---------------------------------------------------------------------------
+
+
+def test_render_page_has_sortable_filterable_leaderboard() -> None:
+    page = render_page()
+
+    assert 'id="leaderboard"' in page
+    assert 'id="leaderboard-filter"' in page
+    # Clickable, keyed sort headers so columns can be ordered.
+    assert "data-sort-key" in page
+    assert "renderLeaderboard" in page
+
+
+def test_render_page_has_run_history_section() -> None:
+    page = render_page()
+
+    assert "Run History" in page
+    assert 'id="run-history"' in page
+    assert "renderRunHistory" in page
+
+
+def test_render_page_has_per_task_drilldown() -> None:
+    page = render_page()
+
+    assert 'id="drilldown"' in page
+    assert "renderDrilldown" in page
+    # The drilldown surfaces the bounded raw-response preview for endpoint tasks.
+    assert "raw_response_preview" in page
+
+
+def test_render_page_is_self_contained_offline() -> None:
+    page = render_page()
+
+    assert "https://" not in page
+    assert "cdn" not in page.lower()
+    assert "//unpkg" not in page
 
 
 def test_data_action_reads_files_fresh_on_each_call(tmp_path: Path) -> None:

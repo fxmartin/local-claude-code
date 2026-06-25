@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from statistics import median
 
@@ -119,12 +119,34 @@ class SweepPoint:
 
 
 @dataclass(frozen=True)
+class RunSummary:
+    """One result file summarized for run-history comparison.
+
+    A run is a single JSONL file. Only secret-safe, comparison-oriented fields
+    are carried (source is reduced to a basename by the loader) so this summary
+    is safe to embed in the committed static artifact and the live view alike.
+    """
+
+    source: str
+    timestamp: str | None
+    models: tuple[str, ...]
+    agents: tuple[str, ...]
+    suites: tuple[str, ...]
+    task_count: int
+    passed: int
+    pass_rate: float
+    median_latency_seconds: float | None
+    median_wall_time_seconds: float | None
+
+
+@dataclass(frozen=True)
 class DashboardData:
     """Aggregated, dashboard-ready view over a set of result records."""
 
     endpoint_models: tuple[EndpointModelAggregate, ...] = ()
     agent_runs: tuple[AgentAggregate, ...] = ()
     sweep_points: tuple[SweepPoint, ...] = ()
+    runs: tuple[RunSummary, ...] = ()
     warnings: tuple[DataQualityWarning, ...] = ()
 
 
@@ -137,10 +159,12 @@ def load_dashboard_data(paths: list[Path]) -> DashboardData:
 
     records: list[dict[str, object]] = []
     warnings: list[DataQualityWarning] = []
+    runs: list[RunSummary] = []
     for path in paths:
         file_path = Path(path)
         if not file_path.exists():
             continue
+        file_records: list[dict[str, object]] = []
         with file_path.open("r", encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, start=1):
                 if not line.strip():
@@ -165,8 +189,14 @@ def load_dashboard_data(paths: list[Path]) -> DashboardData:
                         )
                     )
                     continue
-                records.append(parsed)
-    return build_dashboard_data(records, warnings=warnings)
+                file_records.append(parsed)
+        records.extend(file_records)
+        if file_records:
+            # One run == one file. Source is the basename only, never the host path.
+            runs.append(build_run_summary(file_path.name, file_records))
+    data = build_dashboard_data(records, warnings=warnings)
+    ordered = sorted(runs, key=lambda run: (run.timestamp or "", run.source))
+    return replace(data, runs=tuple(ordered))
 
 
 def build_dashboard_data(
@@ -220,6 +250,70 @@ def build_dashboard_data(
         agent_runs=agent_runs,
         sweep_points=sweep_points,
         warnings=tuple(collected),
+    )
+
+
+def build_run_summary(source: str, records: Sequence[object]) -> RunSummary:
+    """Summarize one run's records (one result file) for run-history comparison.
+
+    Endpoint and agent result records are deduped to the latest attempt per task
+    (matching leaderboard dedupe semantics). Endpoint latency and agent wall time
+    are summarized separately so wall-clock never contaminates endpoint speed.
+    """
+
+    deduped: dict[tuple[str, str, str | None, str], dict[str, object]] = {}
+    timestamp: str | None = None
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get("record_type") == "metadata" and timestamp is None:
+            stamp = record.get("timestamp")
+            if isinstance(stamp, str):
+                timestamp = stamp
+            continue
+        mode = record.get("run_mode")
+        actor_key = "model" if mode == "endpoint" else "agent" if mode == "agent" else None
+        if actor_key is None:
+            continue
+        actor = record.get(actor_key)
+        task_id = record.get("task_id")
+        if not isinstance(actor, str) or not isinstance(task_id, str):
+            continue
+        suite = record.get("suite")
+        suite_value = suite if isinstance(suite, str) else None
+        deduped[(str(mode), actor, suite_value, task_id)] = record
+
+    items = list(deduped.values())
+    models = sorted({str(item["model"]) for item in items if item.get("run_mode") == "endpoint"})
+    agents = sorted({str(item["agent"]) for item in items if item.get("run_mode") == "agent"})
+    suites = sorted({str(item["suite"]) for item in items if isinstance(item.get("suite"), str)})
+    task_count = len(items)
+    passed = sum(1 for item in items if item.get("passed") is True)
+    latencies = [
+        value
+        for item in items
+        if item.get("run_mode") == "endpoint"
+        for value in (_metric(item, "latency_seconds"),)
+        if value is not None
+    ]
+    walls = [
+        value
+        for item in items
+        if item.get("run_mode") == "agent"
+        for value in (_as_float(item.get("wall_time_seconds")),)
+        if value is not None
+    ]
+    return RunSummary(
+        source=source,
+        timestamp=timestamp,
+        models=tuple(models),
+        agents=tuple(agents),
+        suites=tuple(suites),
+        task_count=task_count,
+        passed=passed,
+        pass_rate=passed / task_count if task_count else 0.0,
+        median_latency_seconds=_median(latencies) if latencies else None,
+        median_wall_time_seconds=_median(walls) if walls else None,
     )
 
 
@@ -356,7 +450,9 @@ def _agent_task(record: dict[str, object]) -> AgentTaskResult:
         passed=_as_bool(record.get("passed")),
         failure_reason=_as_str(record.get("failure_reason")),
         wall_time_seconds=_as_float(record.get("wall_time_seconds")),
-        exit_code=exit_code if isinstance(exit_code, int) and not isinstance(exit_code, bool) else None,
+        exit_code=exit_code
+        if isinstance(exit_code, int) and not isinstance(exit_code, bool)
+        else None,
         cost_status=_as_str(record.get("cost_status")),
     )
 
@@ -389,7 +485,7 @@ def _token_count(record: dict[str, object], key: str) -> int:
     return 0
 
 
-def _median(values: list[float | None]) -> float | None:
+def _median(values: Sequence[float | None]) -> float | None:
     present = [value for value in values if value is not None]
     return float(median(present)) if present else None
 
