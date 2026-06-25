@@ -31,7 +31,7 @@
 | Epic-06 | Codex Agent Mode | Benchmark Codex CLI on the same task suites | 4 | 13 | Must Have (MVP) |
 | Epic-07 | Results Dashboard | Explore benchmark runs through static and live local dashboard views | 6 | 20 | Should Have (v2) |
 | Epic-08 | Inferencer Lifecycle Management | Detect/start/stop macOS inference engines with one-active mutual exclusion | 6 | 22 | Should Have (v1.x) |
-| Epic-09 | Unified Dashboard | One localhost surface to manage inferencers, browse results, and launch model+inferencer+suite benchmarks | 6 | 24 | Should Have (v1.x) |
+| Epic-09 | Unified Dashboard | One localhost surface to manage inferencers, browse results, launch model+inferencer+suite benchmarks, and chat-test models | 8 | 32 | Should Have (v1.x) |
 | Epic-10 (LLMBENCH-1) | OpenCode Local Coding Benchmark | Two-axis (coding vs rule-following) deterministic local benchmark with quant-source provenance | 5 | 21 | Should Have (v1.x) |
 | Epic-11 | Local Model Inventory & Sharing | Per-inferencer, format-aware view of downloaded models and detection of models several engines can share | 6 | 24 | Should Have (v1.x) |
 | NFR | Non-Functional Requirements | Accuracy, security, quality, portability, hardware fit | 5 | 12 | Mixed (SEC/QUAL = MVP) |
@@ -46,7 +46,7 @@
 - **[Epic-06: Codex Agent Mode](./stories/epic-06-codex-agent-mode.md)** — `configs/agents.yaml`, task workspaces, `codex exec` runner, agent-mode scoring and CLI.
 - **[Epic-07: Results Dashboard](./stories/epic-07-results-dashboard.md)** — static HTML dashboard, CLI-served live results endpoints, drilldown views, and basic tradeoff/sweep charts.
 - **[Epic-08: Inferencer Lifecycle Management](./stories/epic-08-inferencer-lifecycle.md)** — `configs/inferencers.yaml` registry, install detection, headless start/stop with persisted state, one-active mutual exclusion, `bench inferencer` CLI, benchmark auto-start, localhost web control panel.
-- **[Epic-09: Unified Dashboard](./stories/epic-09-unified-dashboard.md)** — one `bench dashboard` localhost surface composing Epic-07 results and Epic-08 inferencer control, plus a benchmark launcher (model + inferencer + suites), live run monitoring, and a built-in/custom test-suite catalog.
+- **[Epic-09: Unified Dashboard](./stories/epic-09-unified-dashboard.md)** — one `bench dashboard` localhost surface composing Epic-07 results and Epic-08 inferencer control, plus a benchmark launcher (model + inferencer + suites), live run monitoring, a built-in/custom test-suite catalog, and a native streaming chat panel for smoke-testing models.
 - **[Epic-10: OpenCode Local Coding Benchmark](./stories/epic-10-opencode-local-benchmark.md)** (LLMBENCH-1) — `run-bench.sh` two-axis benchmark scoring open-ended coding (Go build + black-box tests) and strict rule-following (JSON map diff) on local models, with quant-source provenance and a comparable scorecard.
 - **[Epic-11: Local Model Inventory & Sharing](./stories/epic-11-local-model-inventory.md)** — per-inferencer, format-aware scanner of downloaded models (GGUF, Ollama blobs, HF/MLX caches, LM Studio/GPT4All dirs), normalized inventory records, shared-repository detection, CLI + dashboard inventory views, and a duplicate-download disk report.
 - **[Non-Functional Requirements](./stories/non-functional-requirements.md)** — performance, security, quality, integration, infrastructure.
@@ -71,8 +71,8 @@ v1 is "done" (per `REQUIREMENTS.md` §6) when one command runs the full HumanEva
 
 ## Project Metrics
 
-- **Total Stories**: 63
-- **Total Story Points**: 214
+- **Total Stories**: 65
+- **Total Story Points**: 222
 - **MVP Stories**: ~28 (Epics 01–04 + Epic-06 + NFR-SEC/QUAL)
 - **MVP Points**: ~88
 
