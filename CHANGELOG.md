@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.16.0 (2026-06-25)
+
+### Features
+
+- **inferencer-lifecycle**: `bench inferencer` subcommands (#08.4-001)
+  ([`0e24d1b`](https://github.com/fxmartin/local-code-bench/commit/0e24d1b0bcb7bea918716ecf977a28d63e3eaa9d))
+
+### Testing
+
+- **inferencer-lifecycle**: `bench inferencer` subcommands (#08.4-001)
+  ([`dbf4320`](https://github.com/fxmartin/local-code-bench/commit/dbf43202cb01402312f521bd562e0eaf6ef4e1dc))
+
+
 ## v0.15.0 (2026-06-25)
 
 ### Features
