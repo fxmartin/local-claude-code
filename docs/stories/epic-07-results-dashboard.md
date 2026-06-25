@@ -75,10 +75,18 @@
 
 **Technical Notes**: Match the existing argparse style in `cli.py`. Avoid a long-running server by default; static generation should remain the default path.
 
+**Implementation**: `cli.py` adds `dashboard` to `--mode` and a `run_dashboard_mode`
+handler. The default path generates the static artifact via
+`dashboard.generate_dashboard` (07.2-001) to `--output` (default
+`results/dashboard.html`). `--serve` instead starts the live localhost server via
+`dashboard_server.serve_dashboard` (07.3-001) on `--host`/`--port` (default
+`127.0.0.1:8770`), printing the URL. Missing `--input` is an argparse usage error
+(exit 2), consistent with the other input-driven modes.
+
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 07.2-001, 07.3-001
 **Risk Level**: Low
@@ -154,8 +162,9 @@
 **Risk Level**: Medium
 
 ## Epic Progress
-**Completed**: 3 / 6 stories · 13 / 20 points
+**Completed**: 4 / 6 stories · 16 / 20 points
 
 - [x] 07.1-001 Dashboard result aggregation model (3 pts)
 - [x] 07.2-001 Static HTML dashboard generator (5 pts)
 - [x] 07.3-001 Live results HTTP endpoints (5 pts)
+- [x] 07.2-002 CLI dashboard mode (3 pts)

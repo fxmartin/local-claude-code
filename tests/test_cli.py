@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from importlib.metadata import version
+from pathlib import Path
 
 import pytest
 
@@ -309,6 +310,88 @@ def test_inferencer_dashboard_config_error_exits_2(monkeypatch, capsys) -> None:
 
     assert exit_code == 2
     assert "bench: error:" in capsys.readouterr().err
+
+
+# --- dashboard mode ----------------------------------------------------------
+
+
+def test_parser_accepts_dashboard_mode() -> None:
+    args = build_parser().parse_args(["--mode", "dashboard"])
+
+    assert args.mode == "dashboard"
+    assert args.serve is False
+
+
+def test_dashboard_mode_generates_static_html(tmp_path, capsys) -> None:
+    input_path = tmp_path / "endpoint.jsonl"
+    append_jsonl(
+        input_path,
+        {
+            "run_mode": "endpoint",
+            "model": "m",
+            "suite": "humaneval",
+            "task_id": "suite/1",
+            "passed": True,
+            "metrics": {"latency_seconds": 1.0},
+        },
+    )
+    output_path = tmp_path / "dashboard.html"
+
+    exit_code = main(
+        ["--mode", "dashboard", "--input", str(input_path), "--output", str(output_path)]
+    )
+
+    assert exit_code == 0
+    assert output_path.exists()
+    assert "<!DOCTYPE html>" in output_path.read_text(encoding="utf-8")
+    assert f"wrote {output_path}" in capsys.readouterr().out
+
+
+def test_dashboard_mode_defaults_output_path(tmp_path, monkeypatch, capsys) -> None:
+    input_path = tmp_path / "endpoint.jsonl"
+    append_jsonl(input_path, {"run_mode": "endpoint", "model": "m", "task_id": "t", "passed": True})
+    captured: dict = {}
+
+    def fake_generate(paths, output):
+        captured.update(paths=paths, output=output)
+        return "<html></html>"
+
+    monkeypatch.setattr("local_code_bench.dashboard.generate_dashboard", fake_generate)
+
+    exit_code = main(["--mode", "dashboard", "--input", str(input_path)])
+
+    assert exit_code == 0
+    assert captured["output"] == Path("results/dashboard.html")
+    assert captured["paths"] == [input_path]
+
+
+def test_dashboard_mode_serve_starts_server(tmp_path, monkeypatch, capsys) -> None:
+    input_path = tmp_path / "endpoint.jsonl"
+    captured: dict = {}
+
+    def fake_serve(paths, *, host, port, progress):
+        captured.update(paths=paths, host=host, port=port)
+        progress(f"results dashboard on http://{host}:{port}")
+
+    monkeypatch.setattr("local_code_bench.dashboard_server.serve_dashboard", fake_serve)
+
+    exit_code = main(
+        ["--mode", "dashboard", "--input", str(input_path), "--serve", "--port", "9123"]
+    )
+
+    assert exit_code == 0
+    assert captured["paths"] == [input_path]
+    assert captured["host"] == "127.0.0.1"
+    assert captured["port"] == 9123
+    assert "http://127.0.0.1:9123" in capsys.readouterr().out
+
+
+def test_dashboard_mode_without_input_errors(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--mode", "dashboard"])
+
+    assert exc.value.code == 2
+    assert "requires --input" in capsys.readouterr().err
 
 
 # --- argument validation -----------------------------------------------------
