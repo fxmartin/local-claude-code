@@ -132,10 +132,23 @@ handler. The default path generates the static artifact via
 
 **Technical Notes**: Start basic: tables, filters, and bounded previews. Avoid building a full observability product.
 
+**Implementation**: `dashboard_model.build_run_summary` summarizes each result file
+into a secret-safe `RunSummary` (basename source, timestamp, models/agents, suites,
+task count, pass rate, median latency/wall time), and `load_dashboard_data` exposes
+these as `DashboardData.runs` ordered by timestamp. The live dashboard
+(`dashboard_server.render_page`) merges endpoint and agent aggregates into one
+sortable, filterable leaderboard (filter box + keyed sort headers), adds a Run
+History table, and a per-task drilldown (click a row) showing task id, pass/fail,
+failure reason, latency, cost, token counts, and the bounded raw-response preview —
+all served from the existing localhost `/api/data` payload. The committed static
+artifact (`dashboard.py`) gains the Run History section and progressive-enhancement
+sort/filter on its leaderboard while keeping previews/free-text reasons out of the
+shared file (secret-safety).
+
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 07.1-001, 07.2-001
 **Risk Level**: Low
@@ -164,10 +177,11 @@ handler. The default path generates the static artifact via
 **Risk Level**: Medium
 
 ## Epic Progress
-**Completed**: 5 / 6 stories · 18 / 20 points
+**Completed**: 6 / 6 stories · 20 / 20 points
 
 - [x] 07.1-001 Dashboard result aggregation model (3 pts)
 - [x] 07.2-001 Static HTML dashboard generator (5 pts)
 - [x] 07.3-001 Live results HTTP endpoints (5 pts)
 - [x] 07.2-002 CLI dashboard mode (3 pts)
+- [x] 07.4-001 Leaderboard, run history, and per-task drilldown (2 pts)
 - [x] 07.4-002 Basic tradeoff and sweep charts (2 pts)

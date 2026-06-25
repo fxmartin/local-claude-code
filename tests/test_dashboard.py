@@ -262,6 +262,56 @@ def test_generate_dashboard_escapes_script_close_in_embedded_json(tmp_path) -> N
     assert embedded["endpoint_models"][0]["model"] == "m</script><script>evil()</script>"
 
 
+def test_dashboard_embeds_run_history_and_renders_section(tmp_path) -> None:
+    path = tmp_path / "run.jsonl"
+    append_jsonl(path, {"record_type": "metadata", "timestamp": "2026-06-25T10:00:00+00:00"})
+    _seed_records(path)
+    output = tmp_path / "dashboard.html"
+
+    content = generate_dashboard([path], output)
+
+    # Run history is a first-class section in the committed artifact.
+    assert "Run History" in content
+    match = re.search(
+        r'<script id="dashboard-data" type="application/json">(.*?)</script>',
+        content,
+        re.DOTALL,
+    )
+    assert match is not None
+    embedded = json.loads(match.group(1).replace("<\\/", "</"))
+    assert embedded["runs"][0]["source"] == "run.jsonl"
+    assert embedded["runs"][0]["timestamp"] == "2026-06-25T10:00:00+00:00"
+    # Two endpoint tasks plus one agent task in the seeded run.
+    assert embedded["runs"][0]["task_count"] == 3
+
+
+def test_dashboard_run_history_uses_basenames_not_host_paths(tmp_path) -> None:
+    path = tmp_path / "run.jsonl"
+    _seed_records(path)
+    output = tmp_path / "dashboard.html"
+
+    content = generate_dashboard([path], output)
+
+    assert "run.jsonl" in content  # basename shown
+    assert str(tmp_path) not in content  # host directory never leaks
+
+
+def test_dashboard_leaderboard_is_sortable_and_filterable(tmp_path) -> None:
+    path = tmp_path / "run.jsonl"
+    _seed_records(path)
+    output = tmp_path / "dashboard.html"
+
+    content = generate_dashboard([path], output)
+
+    # Progressive enhancement: a filter box and clickable, keyed sort headers.
+    assert 'id="leaderboard-filter"' in content
+    assert 'id="leaderboard-table"' in content
+    assert "data-sort-key" in content
+    # The enhancement ships as an inline script with no external fetches.
+    assert not re.search(r"<script[^>]+src=", content)
+    assert not re.search(r'(href|src)\s*=\s*["\']https?://', content)
+
+
 def test_main_writes_dashboard_from_cli_args(tmp_path, capsys) -> None:
     path = tmp_path / "run.jsonl"
     _seed_records(path)
