@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.18.0 (2026-06-25)
+
+### Features
+
+- **results-dashboard**: Live results http endpoints (#07.3-001)
+  ([`1bc7c0d`](https://github.com/fxmartin/local-code-bench/commit/1bc7c0dc7c61dd818026f45681af6fb0d205cb2b))
+
+### Testing
+
+- **results-dashboard**: Live results http endpoints (#07.3-001)
+  ([`17dbb56`](https://github.com/fxmartin/local-code-bench/commit/17dbb5623f4da5ad4e00b0f9f9f3813ca59f7a58))
+
+
 ## v0.17.0 (2026-06-25)
 
 ### Documentation
