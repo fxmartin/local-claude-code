@@ -320,6 +320,31 @@ two providers, run the same model twice, tagging each with `--provider` (and
 `--quant` if the strings differ); both rows land in the same scorecard and the
 note pairs them automatically.
 
+### Sweep, repeat, and engine version
+
+Benchmark several models in one go with `--sweep`, which reads a model-list file
+(one configured model name per line; blank lines and `#` comments are ignored) and
+folds every result into the same consolidated scorecard:
+
+```bash
+# models.txt: one model name per line
+./run-bench.sh --sweep models.txt --engine ollama
+```
+
+`--repeat N` runs each model N times. Run-to-run swings are real (the article saw
+them on a 35B), so the rows are kept individually and a **Variance** section is
+added below the scorecard — reporting the mean, min, max, and σ (in percentage
+points) of the Task B error rate, the tok/s range, and how many of the N runs
+passed Task A — rather than averaging the spread away:
+
+```bash
+./run-bench.sh --model local-dflash-qwen --repeat 3
+```
+
+Every scorecard row also records the **engine version** where the engine exposes
+one (e.g. Ollama's `/api/version`); engines without a version endpoint show `-`.
+This pins the build that produced each result alongside the quant and mode.
+
 ## Leaderboard And Sweep
 
 Generate a Markdown leaderboard from stored JSONL:
