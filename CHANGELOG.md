@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.31.0 (2026-06-26)
+
+### Features
+
+- **inferencer-lifecycle**: Exclusive start with (#08.3-001)
+  ([`3d94ce0`](https://github.com/fxmartin/local-code-bench/commit/3d94ce0a2929413f379876c2d17274b0e95073ff))
+
+### Testing
+
+- **inferencer-lifecycle**: Exclusive start with (#08.3-001)
+  ([`2e76360`](https://github.com/fxmartin/local-code-bench/commit/2e763602166ddc0438b0654266fd4b35a4f3ab60))
+
+
 ## v0.30.1 (2026-06-26)
 
 ### Bug Fixes
