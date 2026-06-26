@@ -131,6 +131,29 @@ uv run bench --suite humaneval-plus --model openrouter-glm-4.6 --timeout 30
 Plus-input sets are large, so raise `--timeout` (per-task sandbox scoring timeout,
 default 5s) if tasks start timing out.
 
+### Custom Suites
+
+The built-in suites (`humaneval`, `mbpp`, `canary`, `humaneval-plus`, `mbpp-plus`)
+are always known to the harness. You can register **custom suites** — a new suite
+that points at a loadable dataset — without changing code, by listing them in an
+optional `configs/suites.yaml`:
+
+```yaml
+suites:
+  - id: my-suite           # selector id, must be unique and not a built-in name
+    label: My Suite        # optional human label (defaults to the id)
+    source: datasets/my-suite.jsonl  # path relative to this file
+    format: jsonl          # optional; inferred from the extension (jsonl | json)
+```
+
+`source` may be a `.jsonl`/`.jsonl.gz` file (one record per line) or a `.json`
+file holding a list (or a `{"data": [...]}` object). The catalog reports each
+suite's availability and task count: a suite whose `source` is missing or
+unreadable is listed **disabled with a reason** rather than offered and failing
+later. EvalPlus suites are likewise shown disabled until their release file is
+cached. There is no `suites.yaml` by default; without it only the built-ins are
+offered.
+
 ### Throughput: Concurrency And Token Caps
 
 Endpoint suite runs are governed by two per-model knobs in `configs/models.yaml`,

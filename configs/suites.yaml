@@ -1,0 +1,24 @@
+# Custom benchmark suites for the dashboard launcher (Story 09.5-001).
+#
+# The built-in suites (humaneval, mbpp, canary, humaneval-plus, mbpp-plus) are
+# always available and need no entry here. Use this file to register *additional*
+# suites that point at a loadable dataset, without changing any code.
+#
+#   id      selector id. Must be unique and must not collide with a built-in name.
+#   label   optional human label shown in the launcher (defaults to the id).
+#   source  path to the dataset, relative to this file. A `.jsonl`/`.jsonl.gz`
+#           file (one JSON record per line) or a `.json` file holding a list (or a
+#           `{"data": [...]}` object).
+#   format  optional override (`jsonl` | `json`); inferred from the extension.
+#
+# A suite whose source is missing or unreadable is listed *disabled with a reason*
+# rather than offered and failing at launch.
+#
+# This file ships fully commented, so by default only the built-in suites are
+# offered. Uncomment and adapt an entry to register your own:
+#
+# suites:
+#   - id: my-suite
+#     label: My Suite
+#     source: datasets/my-suite.jsonl
+#     format: jsonl
