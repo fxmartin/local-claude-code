@@ -353,6 +353,20 @@ def test_unified_dashboard_discovers_results_dir(monkeypatch, tmp_path) -> None:
     assert captured["result_paths"] == [tmp_path / "run-a.jsonl", tmp_path / "run-b.jsonl"]
 
 
+def test_unified_dashboard_missing_results_dir_yields_no_inputs(monkeypatch, tmp_path) -> None:
+    captured: dict = {}
+
+    def fake_serve(config, state_dir, result_paths, *, host, port, progress) -> None:
+        captured["result_paths"] = result_paths
+
+    monkeypatch.setattr("local_code_bench.unified_dashboard.serve_dashboard", fake_serve)
+
+    exit_code = main(["dashboard", "--results-dir", str(tmp_path / "nope")])
+
+    assert exit_code == 0
+    assert captured["result_paths"] == []
+
+
 def test_unified_dashboard_config_error_exits_2(monkeypatch, capsys) -> None:
     from local_code_bench.config import ConfigError
 

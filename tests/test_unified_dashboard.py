@@ -248,6 +248,31 @@ def test_one_server_answers_both_status_and_data_over_http(monkeypatch, tmp_path
         thread.join(timeout=5)
 
 
+def test_one_server_routes_a_real_post_through_do_post(monkeypatch, tmp_path: Path) -> None:
+    # exercises the handler's do_POST dispatch over the wire, not just handle_request
+    monkeypatch.setattr(
+        ud.inferencer_panel,
+        "stop_action",
+        lambda name, configs, state_dir: (200, {"stopped": name}),
+    )
+
+    server = ud.make_server(_ctx(), port=0)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = urllib.request.Request(
+            f"http://{host}:{port}/api/stop?name=dflash", data=b"", method="POST"
+        )
+        with urllib.request.urlopen(request) as resp:
+            assert resp.status == 200
+            assert json.loads(resp.read())["stopped"] == "dflash"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 # ---------------------------------------------------------------------------
 # serve_dashboard lifecycle
 # ---------------------------------------------------------------------------
