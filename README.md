@@ -300,6 +300,26 @@ Equivalent without the wrapper:
 uv run bench opencode --model local-dflash-qwen
 ```
 
+### Scorecard and provenance note
+
+After each run the harness scores both tasks and appends one comparable row to
+`results/scorecard.csv` (with a `results/scorecard.jsonl` provenance record), then
+renders `results/scorecard.md`. Task A's generated Go is compiled and
+behaviourally tested; Task B's JSON is diffed against ground truth. The Markdown
+table lists every model run, sorted **passing rows first, then by Task B error
+rate ascending** (the article's ordering), with columns for model, quant,
+provider, mode, Task A (build + tests n/total), Task B (error %, coverage %,
+collisions), tokens/sec, and wall-clock.
+
+The **provenance note** at the bottom is the Unsloth-vs-Bartowski detector made
+first-class: it groups rows by base model and the bit-width parsed from the quant
+string, and surfaces any pair that is the *same model at the same bit level from
+different quant providers*, reporting the Task B error-rate delta between them
+(the article saw 5.0% vs 100% on the identical model and bit-width). To compare
+two providers, run the same model twice, tagging each with `--provider` (and
+`--quant` if the strings differ); both rows land in the same scorecard and the
+note pairs them automatically.
+
 ## Leaderboard And Sweep
 
 Generate a Markdown leaderboard from stored JSONL:

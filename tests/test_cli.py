@@ -1097,3 +1097,63 @@ def test_opencode_dispatches_to_run_opencode(monkeypatch, tmp_path, capsys) -> N
     assert captured["overrides"].engine == "ollama"
     assert captured["seed"] == 9
     assert "opencode" in capsys.readouterr().out
+
+
+def test_opencode_records_scorecard_after_run(monkeypatch, tmp_path, capsys) -> None:
+    from local_code_bench.metrics import CompletionMeasurement
+
+    model = ModelConfig(
+        name="local",
+        type="openai",
+        base_url="http://localhost:9000/v1",
+        model_id="qwen",
+        pinned_revision="abc",
+        price_per_1k_tokens=TokenPrices(input=0, output=0),
+        quant="IQ3_XXS",
+        provider="unsloth",
+    )
+    monkeypatch.setattr("local_code_bench.cli.load_models", lambda _path: {"local": model})
+
+    def measurement(text: str) -> CompletionMeasurement:
+        return CompletionMeasurement(
+            response=text,
+            ttft_seconds=0.1,
+            latency_seconds=1.0,
+            prompt_tokens=10,
+            completion_tokens=20,
+            prefill_tokens_per_second=100.0,
+            decode_tokens_per_second=20.0,
+            token_counts_estimated=False,
+        )
+
+    # Empty responses keep Task A scoring off the Go toolchain (no code -> BUILD_FAIL)
+    # and Task B unparseable (-> PARSE_FAIL), so the path is deterministic and offline.
+    def fake_run_opencode(**kwargs):
+        return tmp_path / "opencode-run.jsonl", [
+            ("task-a", measurement("")),
+            ("task-b", measurement("")),
+        ]
+
+    monkeypatch.setattr("local_code_bench.cli.run_opencode", fake_run_opencode)
+
+    exit_code = main(
+        [
+            "--results-dir",
+            str(tmp_path),
+            "opencode",
+            "--model",
+            "local",
+        ]
+    )
+
+    assert exit_code == 0
+    csv_path = tmp_path / "scorecard.csv"
+    md_path = tmp_path / "scorecard.md"
+    assert csv_path.exists()
+    assert md_path.exists()
+    csv_text = csv_path.read_text(encoding="utf-8")
+    assert "local" in csv_text
+    assert "IQ3_XXS" in csv_text and "unsloth" in csv_text
+    assert "BUILD_FAIL" in csv_text and "PARSE_FAIL" in csv_text
+    assert "Provenance note" in md_path.read_text(encoding="utf-8")
+    assert "scorecard=" in capsys.readouterr().out
