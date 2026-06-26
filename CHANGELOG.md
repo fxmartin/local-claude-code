@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.24.0 (2026-06-26)
+
+### Features
+
+- **unified-dashboard**: Launch orchestration endpoint (#09.3-001)
+  ([`5e642ec`](https://github.com/fxmartin/local-code-bench/commit/5e642ec6a06cf0f2a53333cc432eaccd377ef814))
+
+### Testing
+
+- **unified-dashboard**: Launch orchestration endpoint (#09.3-001)
+  ([`8cf86c5`](https://github.com/fxmartin/local-code-bench/commit/8cf86c549208bd51b457647176232df3c2a9bdfc))
+
+
 ## v0.23.0 (2026-06-26)
 
 ### Features
