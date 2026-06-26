@@ -21,7 +21,17 @@ from local_code_bench.inferencers import detect, manager
 from local_code_bench.inferencers.manager import InferencerError, InferencerStatus
 from local_code_bench.leaderboard import generate_leaderboard
 from local_code_bench.metrics import CompletionMeasurement, capture_stream_metrics
+from local_code_bench.opencode.blackbox import score_task_a
+from local_code_bench.opencode.fixtures import ground_truth, load_fixture
 from local_code_bench.opencode.invoke import OpenCodeOverrides, run_opencode
+from local_code_bench.opencode.scorecard import (
+    append_run,
+    build_row,
+    provenance_note,
+    read_runs,
+    render_markdown,
+)
+from local_code_bench.opencode.taskb import score_task_b
 from local_code_bench.power import PowerSampler
 from local_code_bench.provider import ChatRequest, ProviderError, provider_for_model
 from local_code_bench.results import append_jsonl, new_run_path
@@ -572,7 +582,60 @@ def run_opencode_command(args: argparse.Namespace) -> int:
         f"opencode model={model.name} mode={args.opencode_mode} "
         f"tasks={len(records)} results={result_path}"
     )
+
+    scorecard_path = _record_opencode_scorecard(args, model, records)
+    if scorecard_path is not None:
+        print(f"opencode scorecard={scorecard_path}")
     return 0
+
+
+def _record_opencode_scorecard(
+    args: argparse.Namespace,
+    model: ModelConfig,
+    records: Sequence[tuple[str, CompletionMeasurement | None]],
+) -> Path | None:
+    """Score the completed run and append a comparable row to the scorecard.
+
+    Task A's Go is compiled and behaviourally tested; Task B's JSON is diffed
+    against ground truth. The scored row lands in ``results/scorecard.csv`` (plus a
+    JSONL provenance record), and the full Markdown table — sorted passing-first —
+    and provenance note are rendered to ``results/scorecard.md``.
+    """
+
+    measurements = {task: measurement for task, measurement in records}
+    task_a_measurement = measurements.get("task-a")
+    task_b_measurement = measurements.get("task-b")
+    if task_a_measurement is None or task_b_measurement is None:
+        return None
+
+    task_a = score_task_a(task_a_measurement.response)
+    task_b = score_task_b(task_b_measurement.response, ground_truth(load_fixture()))
+
+    wall_clock = task_a_measurement.latency_seconds + task_b_measurement.latency_seconds
+    completion_tokens = (
+        task_a_measurement.completion_tokens + task_b_measurement.completion_tokens
+    )
+    tokens_per_second = completion_tokens / wall_clock if wall_clock > 0 else None
+
+    row = build_row(
+        model_name=model.name,
+        quant=args.quant or model.quant,
+        provider=args.provider or model.provider,
+        mode=args.opencode_mode,
+        task_a=task_a,
+        task_b=task_b,
+        tokens_per_second=tokens_per_second,
+        wall_clock_seconds=wall_clock,
+    )
+
+    results_dir = Path(args.results_dir)
+    csv_path = results_dir / "scorecard.csv"
+    append_run(csv_path, row, jsonl_path=results_dir / "scorecard.jsonl")
+
+    rows = read_runs(csv_path)
+    report = render_markdown(rows) + "\n\n" + provenance_note(rows) + "\n"
+    (results_dir / "scorecard.md").write_text(report, encoding="utf-8")
+    return csv_path
 
 
 def _resolve_dashboard_inputs(args: argparse.Namespace) -> list[str | Path]:

@@ -136,9 +136,9 @@ Severity rules (given verbatim to the model, and the ground truth for Task B):
 **Technical Notes**: `opencode/scorecard.py` with `append_run`, `render_markdown`, and `provenance_note` (group rows by base model + bit-width parsed from the quant string, surface provider-only pairs and their score delta). Reuse `results.py` (`new_run_path`/`append_jsonl`) to also keep a JSONL provenance record alongside the CSV.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 10.2-001, 10.3-001
 **Risk Level**: Low
@@ -174,4 +174,4 @@ Severity rules (given verbatim to the model, and the ground truth for Task B):
 - Determinism verified: same inputs, same scores on rerun.
 
 ## Epic Progress
-**Completed**: 1 / 5 stories · 5 / 21 points (10.3-001)
+**Completed**: 2 / 5 stories · 8 / 21 points (10.3-001, 10.4-001)
