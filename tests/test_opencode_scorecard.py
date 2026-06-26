@@ -15,6 +15,7 @@ from local_code_bench.opencode.scorecard import (
     read_runs,
     render_markdown,
     row_passed,
+    variance_note,
 )
 from local_code_bench.opencode.taskb import PARSE_FAIL, TaskBScore
 
@@ -60,6 +61,7 @@ def _row(
     task_b_flag=None,
     tokens_per_second: float | None = 42.0,
     wall_clock_seconds: float | None = 3.2,
+    engine_version: str | None = None,
 ) -> ScorecardRow:
     return build_row(
         model_name=model,
@@ -70,6 +72,7 @@ def _row(
         task_b=_task_b(error_rate=error_rate, coverage=coverage, collisions=collisions, flag=task_b_flag),
         tokens_per_second=tokens_per_second,
         wall_clock_seconds=wall_clock_seconds,
+        engine_version=engine_version,
     )
 
 
@@ -284,3 +287,70 @@ def test_provenance_note_skips_rows_without_parseable_quant() -> None:
     note = provenance_note(rows)
     # No comparable bit-width, so no pair is surfaced.
     assert "unsloth" not in note
+
+
+# --- engine_version (Story 10.5-001) ---------------------------------------
+
+
+def test_engine_version_is_a_scorecard_column() -> None:
+    assert "engine_version" in SCORECARD_COLUMNS
+
+
+def test_build_row_carries_engine_version() -> None:
+    assert _row(engine_version="ollama 0.5.7").engine_version == "ollama 0.5.7"
+
+
+def test_engine_version_round_trips_through_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "scorecard.csv"
+    append_run(csv_path, _row(model="m", engine_version="0.5.7"))
+    (restored,) = read_runs(csv_path)
+    assert restored.engine_version == "0.5.7"
+
+
+def test_render_markdown_shows_engine_version() -> None:
+    table = render_markdown([_row(engine_version="0.5.7")])
+    assert "Engine ver" in table
+    assert "0.5.7" in table
+
+
+# --- variance_note (Story 10.5-001) ----------------------------------------
+
+
+def test_variance_note_no_repeats_reports_nothing_to_compare() -> None:
+    note = variance_note([_row(model="solo")])
+    assert "## Variance" in note
+    assert "No repeated runs" in note
+
+
+def test_variance_note_surfaces_spread_across_repeated_runs() -> None:
+    rows = [
+        _row(model="qwen35b", error_rate=0.10, tokens_per_second=30.0),
+        _row(model="qwen35b", error_rate=0.40, tokens_per_second=50.0),
+    ]
+    note = variance_note(rows)
+    assert "qwen35b" in note
+    assert "2 runs" in note
+    # min/max of the Task B error rate are shown, not just an average.
+    assert "min 10.0%" in note
+    assert "max 40.0%" in note
+    # tok/s range surfaced too.
+    assert "30.0" in note and "50.0" in note
+
+
+def test_variance_note_groups_by_full_run_identity() -> None:
+    # Same model but different mode -> two single-run groups, nothing to compare.
+    rows = [
+        _row(model="m", mode="default"),
+        _row(model="m", mode="thinking"),
+    ]
+    note = variance_note(rows)
+    assert "No repeated runs" in note
+
+
+def test_variance_note_counts_task_a_passes_across_runs() -> None:
+    rows = [
+        _row(model="m", compiled=True, passed=5, total=5),
+        _row(model="m", compiled=False, passed=0, total=5),
+    ]
+    note = variance_note(rows)
+    assert "passed 1/2 runs" in note

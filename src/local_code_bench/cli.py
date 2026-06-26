@@ -22,15 +22,19 @@ from local_code_bench.inferencers.manager import InferencerError, InferencerStat
 from local_code_bench.leaderboard import generate_leaderboard
 from local_code_bench.metrics import CompletionMeasurement, capture_stream_metrics
 from local_code_bench.opencode.blackbox import score_task_a
+from local_code_bench.opencode.engine_version import capture_engine_version
 from local_code_bench.opencode.fixtures import ground_truth, load_fixture
-from local_code_bench.opencode.invoke import OpenCodeOverrides, run_opencode
+from local_code_bench.opencode.invoke import OpenCodeOverrides, resolve_model, run_opencode
 from local_code_bench.opencode.scorecard import (
+    ScorecardRow,
     append_run,
     build_row,
     provenance_note,
     read_runs,
     render_markdown,
+    variance_note,
 )
+from local_code_bench.opencode.sweep import read_model_list
 from local_code_bench.opencode.taskb import score_task_b
 from local_code_bench.power import PowerSampler
 from local_code_bench.provider import ChatRequest, ProviderError, provider_for_model
@@ -320,6 +324,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="prompts",
         help="directory holding task-a.md and task-b.md",
     )
+    opencode.add_argument(
+        "--sweep",
+        help="path to a model-list file (one model name per line); folds all into one scorecard",
+    )
+    opencode.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="run each model N times and surface run-to-run variance (default 1)",
+    )
     return parser
 
 
@@ -544,22 +558,22 @@ def run_unified_dashboard_command(args: argparse.Namespace) -> int:
 
 
 def run_opencode_command(args: argparse.Namespace) -> int:
-    """Drive the OpenCode benchmark for one model (Story 10.1-001).
+    """Drive the OpenCode benchmark for one or many models (Stories 10.1/10.5).
 
-    Resolves the configured model, layers the CLI provenance/endpoint overrides on
-    top, and invokes both fixed task prompts deterministically. Missing/unknown
-    models raise ``ConfigError`` so the shared outer handler reports them on stderr
-    with exit 2, like the rest of the CLI.
+    A single run is just the degenerate case of a sweep over one model run once:
+    ``--sweep`` supplies a model-list file and ``--repeat N`` runs each model N
+    times. Every (model, run) pair invokes both fixed task prompts, is scored, and
+    is appended to one consolidated ``results/scorecard.csv``; the rendered report
+    surfaces both the provenance note and the run-to-run variance. Missing/unknown
+    models or an empty/missing sweep file raise ``ConfigError`` so the shared outer
+    handler reports them on stderr with exit 2, like the rest of the CLI.
     """
 
-    if not args.model:
-        raise ConfigError("opencode requires --model")
+    if args.repeat < 1:
+        raise ConfigError("--repeat must be a positive integer")
+
     models = load_models(args.config)
-    try:
-        model = models[args.model]
-    except KeyError as exc:
-        available = ", ".join(sorted(models)) or "(none)"
-        raise ConfigError(f"unknown model '{args.model}'. Available models: {available}") from exc
+    model_names = _opencode_model_names(args)
 
     overrides = OpenCodeOverrides(
         endpoint=args.endpoint,
@@ -567,39 +581,73 @@ def run_opencode_command(args: argparse.Namespace) -> int:
         quant=args.quant,
         provider=args.provider,
     )
-    result_path, records = run_opencode(
-        model=model,
-        overrides=overrides,
-        mode=args.opencode_mode,
-        prompts_dir=args.prompts_dir,
-        results_dir=args.results_dir,
-        seed=args.seed,
-        temperature=args.temperature,
-        max_tokens=args.max_tokens,
-        progress=lambda message: print(message, flush=True),
-    )
-    print(
-        f"opencode model={model.name} mode={args.opencode_mode} "
-        f"tasks={len(records)} results={result_path}"
-    )
+    results_dir = Path(args.results_dir)
+    scored = False
+    for name in model_names:
+        try:
+            model = models[name]
+        except KeyError as exc:
+            available = ", ".join(sorted(models)) or "(none)"
+            raise ConfigError(f"unknown model '{name}'. Available models: {available}") from exc
 
-    scorecard_path = _record_opencode_scorecard(args, model, records)
-    if scorecard_path is not None:
-        print(f"opencode scorecard={scorecard_path}")
+        resolved = resolve_model(model, overrides, mode=args.opencode_mode)
+        engine_version = capture_engine_version(resolved.engine, resolved.base_url)
+
+        for run_index in range(1, args.repeat + 1):
+            result_path, records = run_opencode(
+                model=model,
+                overrides=overrides,
+                mode=args.opencode_mode,
+                prompts_dir=args.prompts_dir,
+                results_dir=args.results_dir,
+                seed=args.seed,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                progress=lambda message: print(message, flush=True),
+            )
+            run_tag = f" run={run_index}/{args.repeat}" if args.repeat > 1 else ""
+            print(
+                f"opencode model={model.name} mode={args.opencode_mode}{run_tag} "
+                f"tasks={len(records)} results={result_path}"
+            )
+            row = _score_opencode_run(args, model, records, engine_version=engine_version)
+            if row is not None:
+                append_run(
+                    results_dir / "scorecard.csv",
+                    row,
+                    jsonl_path=results_dir / "scorecard.jsonl",
+                )
+                scored = True
+
+    if scored:
+        _render_opencode_scorecard(results_dir)
+        print(f"opencode scorecard={results_dir / 'scorecard.csv'}")
     return 0
 
 
-def _record_opencode_scorecard(
+def _opencode_model_names(args: argparse.Namespace) -> list[str]:
+    """Resolve which models to run: the sweep list, else the single ``--model``."""
+
+    if args.sweep:
+        return read_model_list(args.sweep)
+    if not args.model:
+        raise ConfigError("opencode requires --model or --sweep")
+    return [args.model]
+
+
+def _score_opencode_run(
     args: argparse.Namespace,
     model: ModelConfig,
     records: Sequence[tuple[str, CompletionMeasurement | None]],
-) -> Path | None:
-    """Score the completed run and append a comparable row to the scorecard.
+    *,
+    engine_version: str | None,
+) -> ScorecardRow | None:
+    """Score one completed (model, run) into a comparable scorecard row.
 
     Task A's Go is compiled and behaviourally tested; Task B's JSON is diffed
-    against ground truth. The scored row lands in ``results/scorecard.csv`` (plus a
-    JSONL provenance record), and the full Markdown table — sorted passing-first —
-    and provenance note are rendered to ``results/scorecard.md``.
+    against ground truth. Returns ``None`` when either task is missing, so an
+    incomplete invocation contributes no row. The engine version captured for the
+    model is carried onto the row (Story 10.5-001).
     """
 
     measurements = {task: measurement for task, measurement in records}
@@ -617,7 +665,7 @@ def _record_opencode_scorecard(
     )
     tokens_per_second = completion_tokens / wall_clock if wall_clock > 0 else None
 
-    row = build_row(
+    return build_row(
         model_name=model.name,
         quant=args.quant or model.quant,
         provider=args.provider or model.provider,
@@ -626,16 +674,27 @@ def _record_opencode_scorecard(
         task_b=task_b,
         tokens_per_second=tokens_per_second,
         wall_clock_seconds=wall_clock,
+        engine_version=engine_version,
     )
 
-    results_dir = Path(args.results_dir)
-    csv_path = results_dir / "scorecard.csv"
-    append_run(csv_path, row, jsonl_path=results_dir / "scorecard.jsonl")
 
-    rows = read_runs(csv_path)
-    report = render_markdown(rows) + "\n\n" + provenance_note(rows) + "\n"
+def _render_opencode_scorecard(results_dir: Path) -> None:
+    """Render the consolidated Markdown report from every stored scorecard row.
+
+    The table is sorted passing-first; below it sit the provenance note (the
+    Unsloth-vs-Bartowski detector) and the variance note (run-to-run spread).
+    """
+
+    rows = read_runs(results_dir / "scorecard.csv")
+    report = (
+        render_markdown(rows)
+        + "\n\n"
+        + provenance_note(rows)
+        + "\n\n"
+        + variance_note(rows)
+        + "\n"
+    )
     (results_dir / "scorecard.md").write_text(report, encoding="utf-8")
-    return csv_path
 
 
 def _resolve_dashboard_inputs(args: argparse.Namespace) -> list[str | Path]:

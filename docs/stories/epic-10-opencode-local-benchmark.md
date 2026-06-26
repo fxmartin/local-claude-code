@@ -160,9 +160,9 @@ Severity rules (given verbatim to the model, and the ground truth for Task B):
 **Technical Notes**: `--sweep`/`--repeat` flags on the `opencode` subcommand. Capture engine version via the engine's version endpoint or CLI where available; record it per row alongside the existing metadata.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 10.4-001
 **Risk Level**: Medium
@@ -174,4 +174,4 @@ Severity rules (given verbatim to the model, and the ground truth for Task B):
 - Determinism verified: same inputs, same scores on rerun.
 
 ## Epic Progress
-**Completed**: 2 / 5 stories · 8 / 21 points (10.3-001, 10.4-001)
+**Completed**: 3 / 5 stories · 11 / 21 points (10.3-001, 10.4-001, 10.5-001)

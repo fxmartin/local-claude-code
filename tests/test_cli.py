@@ -1157,3 +1157,141 @@ def test_opencode_records_scorecard_after_run(monkeypatch, tmp_path, capsys) -> 
     assert "BUILD_FAIL" in csv_text and "PARSE_FAIL" in csv_text
     assert "Provenance note" in md_path.read_text(encoding="utf-8")
     assert "scorecard=" in capsys.readouterr().out
+
+
+# --- Story 10.5-001: sweep, repeat/variance, engine version ----------------
+
+
+def _opencode_model(name: str, **overrides: object) -> ModelConfig:
+    base = {
+        "name": name,
+        "type": "openai",
+        "base_url": "http://localhost:9000/v1",
+        "model_id": "qwen",
+        "pinned_revision": "abc",
+        "price_per_1k_tokens": TokenPrices(input=0, output=0),
+    }
+    base.update(overrides)
+    return ModelConfig(**base)  # type: ignore[arg-type]
+
+
+def _scoreable_run(monkeypatch, tmp_path):
+    """Stub run_opencode + engine version so scoring is deterministic and offline.
+
+    Empty task responses score BUILD_FAIL / PARSE_FAIL, exercising the full
+    score-and-append path without the Go toolchain or a live model.
+    """
+
+    from local_code_bench.metrics import CompletionMeasurement
+
+    def measurement() -> CompletionMeasurement:
+        return CompletionMeasurement(
+            response="",
+            ttft_seconds=0.1,
+            latency_seconds=1.0,
+            prompt_tokens=10,
+            completion_tokens=20,
+            prefill_tokens_per_second=100.0,
+            decode_tokens_per_second=20.0,
+            token_counts_estimated=False,
+        )
+
+    def fake_run_opencode(**kwargs):
+        return tmp_path / "opencode-run.jsonl", [
+            ("task-a", measurement()),
+            ("task-b", measurement()),
+        ]
+
+    monkeypatch.setattr("local_code_bench.cli.run_opencode", fake_run_opencode)
+    monkeypatch.setattr(
+        "local_code_bench.cli.capture_engine_version", lambda _engine, _url: "ollama 0.5.7"
+    )
+
+
+def test_parser_accepts_opencode_sweep_and_repeat() -> None:
+    args = build_parser().parse_args(
+        ["opencode", "--sweep", "models.txt", "--repeat", "3"]
+    )
+
+    assert args.sweep == "models.txt"
+    assert args.repeat == 3
+
+
+def test_opencode_repeat_default_is_one() -> None:
+    args = build_parser().parse_args(["opencode", "--model", "local"])
+
+    assert args.repeat == 1
+    assert args.sweep is None
+
+
+def test_opencode_rejects_non_positive_repeat(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("local_code_bench.cli.load_models", lambda _path: {})
+
+    exit_code = main(["opencode", "--model", "local", "--repeat", "0"])
+
+    assert exit_code == 2
+    assert "--repeat must be a positive integer" in capsys.readouterr().err
+
+
+def test_opencode_sweep_consolidates_models_into_one_scorecard(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    models = {"alpha": _opencode_model("alpha"), "beta": _opencode_model("beta")}
+    monkeypatch.setattr("local_code_bench.cli.load_models", lambda _path: models)
+    _scoreable_run(monkeypatch, tmp_path)
+
+    sweep_file = tmp_path / "models.txt"
+    sweep_file.write_text("alpha\nbeta\n", encoding="utf-8")
+
+    exit_code = main(
+        ["--results-dir", str(tmp_path), "opencode", "--sweep", str(sweep_file)]
+    )
+
+    assert exit_code == 0
+    from local_code_bench.opencode.scorecard import read_runs
+
+    rows = read_runs(tmp_path / "scorecard.csv")
+    assert [row.model for row in rows] == ["alpha", "beta"]
+    # Engine version is captured per row.
+    assert all(row.engine_version == "ollama 0.5.7" for row in rows)
+    assert "scorecard=" in capsys.readouterr().out
+
+
+def test_opencode_sweep_unknown_model_errors(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(
+        "local_code_bench.cli.load_models", lambda _path: {"alpha": _opencode_model("alpha")}
+    )
+    _scoreable_run(monkeypatch, tmp_path)
+    sweep_file = tmp_path / "models.txt"
+    sweep_file.write_text("alpha\nghost\n", encoding="utf-8")
+
+    exit_code = main(
+        ["--results-dir", str(tmp_path), "opencode", "--sweep", str(sweep_file)]
+    )
+
+    assert exit_code == 2
+    assert "unknown model 'ghost'" in capsys.readouterr().err
+
+
+def test_opencode_repeat_runs_n_times_and_reports_variance(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setattr(
+        "local_code_bench.cli.load_models", lambda _path: {"local": _opencode_model("local")}
+    )
+    _scoreable_run(monkeypatch, tmp_path)
+
+    exit_code = main(
+        ["--results-dir", str(tmp_path), "opencode", "--model", "local", "--repeat", "3"]
+    )
+
+    assert exit_code == 0
+    from local_code_bench.opencode.scorecard import read_runs
+
+    rows = read_runs(tmp_path / "scorecard.csv")
+    assert len(rows) == 3
+    md = (tmp_path / "scorecard.md").read_text(encoding="utf-8")
+    assert "## Variance" in md
+    assert "3 runs" in md
+    out = capsys.readouterr().out
+    assert "run=1/3" in out and "run=3/3" in out

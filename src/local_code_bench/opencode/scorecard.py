@@ -19,6 +19,7 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 from re import search
+from statistics import mean, pstdev
 
 from local_code_bench.opencode.blackbox import TaskAResult
 from local_code_bench.opencode.taskb import TaskBScore
@@ -41,6 +42,7 @@ SCORECARD_COLUMNS: tuple[str, ...] = (
     "task_b_flag",
     "tokens_per_second",
     "wall_clock_seconds",
+    "engine_version",
 )
 
 #: Rendered in place of an absent value (no quant/provider, or unmeasured speed).
@@ -65,6 +67,7 @@ class ScorecardRow:
     task_b_flag: str | None
     tokens_per_second: float | None
     wall_clock_seconds: float | None
+    engine_version: str | None = None
 
 
 def build_row(
@@ -77,6 +80,7 @@ def build_row(
     task_b: TaskBScore,
     tokens_per_second: float | None,
     wall_clock_seconds: float | None,
+    engine_version: str | None = None,
 ) -> ScorecardRow:
     """Collapse the two task scores plus provenance into one scorecard row."""
 
@@ -95,6 +99,7 @@ def build_row(
         task_b_flag=task_b.flag,
         tokens_per_second=tokens_per_second,
         wall_clock_seconds=wall_clock_seconds,
+        engine_version=engine_version,
     )
 
 
@@ -186,6 +191,7 @@ def _from_csv(record: dict[str, str]) -> ScorecardRow:
         task_b_flag=text("task_b_flag"),
         tokens_per_second=number("tokens_per_second"),
         wall_clock_seconds=number("wall_clock_seconds"),
+        engine_version=text("engine_version"),
     )
 
 
@@ -212,6 +218,7 @@ _HEADERS: tuple[str, ...] = (
     "Collisions",
     "tok/s",
     "Wall (s)",
+    "Engine ver",
 )
 
 
@@ -267,6 +274,7 @@ def render_markdown(rows: list[ScorecardRow]) -> str:
             str(row.collisions),
             _float_cell(row.tokens_per_second, precision=1),
             _float_cell(row.wall_clock_seconds, precision=2),
+            row.engine_version or _EMPTY,
         )
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
@@ -320,4 +328,47 @@ def provenance_note(rows: list[ScorecardRow]) -> str:
         "Same base model at the same bit-width from different quant providers "
         "(the Unsloth-vs-Bartowski lesson):"
     )
+    return "\n".join([heading, "", intro, "", *bullets])
+
+
+def variance_note(rows: list[ScorecardRow]) -> str:
+    """Surface run-to-run spread across repeated runs of one config.
+
+    Rows are grouped by the full run identity ``(model, quant, provider, mode)``;
+    only groups with two or more runs — i.e. ``--repeat N`` or a sweep that names a
+    config twice — are reported. The article saw real run-to-run swings on the 35B,
+    so the spread is *shown* (mean, min, max, and a σ in percentage points for Task
+    B error, plus the tok/s range and the Task A pass count) rather than averaged
+    away into a single misleading number.
+    """
+
+    groups: dict[tuple[str, str | None, str | None, str], list[ScorecardRow]] = {}
+    for row in rows:
+        groups.setdefault((row.model, row.quant, row.provider, row.mode), []).append(row)
+
+    bullets: list[str] = []
+    for (model, quant, provider, mode), members in groups.items():
+        if len(members) < 2:
+            continue
+        count = len(members)
+        errors = [member.error_rate for member in members]
+        speeds = [m.tokens_per_second for m in members if m.tokens_per_second is not None]
+        passes = sum(1 for member in members if row_passed(member))
+        tag = "/".join(part for part in (quant, provider) if part) or _EMPTY
+        spread = (
+            f"Task B err mean {mean(errors) * 100:.1f}% "
+            f"(min {min(errors) * 100:.1f}%, max {max(errors) * 100:.1f}%, "
+            f"σ {pstdev(errors) * 100:.1f}pp); Task A passed {passes}/{count} runs"
+        )
+        if speeds:
+            spread += f"; tok/s {min(speeds):.1f}–{max(speeds):.1f}"
+        bullets.append(f"- **{model}** ({tag}, {mode}): {count} runs — {spread}")
+
+    heading = "## Variance"
+    if not bullets:
+        return (
+            f"{heading}\n\nNo repeated runs to compare "
+            "(use --repeat N, or a sweep that names a config more than once)."
+        )
+    intro = "Run-to-run spread across repeated runs (variance is surfaced, not averaged away):"
     return "\n".join([heading, "", intro, "", *bullets])
