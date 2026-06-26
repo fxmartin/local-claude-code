@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v0.30.1 (2026-06-26)
+
+### Bug Fixes
+
+- **inferencers**: Align vllm-mlx entry with the standalone package
+  ([#35](https://github.com/fxmartin/local-code-bench/pull/35),
+  [`60bc240`](https://github.com/fxmartin/local-code-bench/commit/60bc24007d8f99180252a52171f12a0ae49c8856))
+
+### Documentation
+
+- Add per-engine inferencer installation guide for M3 Max
+  ([#34](https://github.com/fxmartin/local-code-bench/pull/34),
+  [`b7efc3a`](https://github.com/fxmartin/local-code-bench/commit/b7efc3a70b461e94b43b9d326788a3e31bb67740))
+
+
 ## v0.30.0 (2026-06-26)
 
 ### Features
