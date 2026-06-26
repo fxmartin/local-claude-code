@@ -336,6 +336,61 @@ def test_api_chat_streams_over_http_and_cancels_cleanly(monkeypatch) -> None:
         thread.join(timeout=5)
 
 
+class _BrokenWriter:
+    """A response writer that fails as if the client closed the connection."""
+
+    def write(self, data: bytes) -> int:
+        raise BrokenPipeError("client gone")
+
+    def flush(self) -> None:  # pragma: no cover - never reached after write() raises
+        pass
+
+
+def _stub_stream_handler():
+    handler = ud.make_handler(_ctx()).__new__(ud.make_handler(_ctx()))
+    handler.wfile = _BrokenWriter()
+    handler.send_response = lambda *a, **k: None
+    handler.send_header = lambda *a, **k: None
+    handler.end_headers = lambda: None
+    return handler
+
+
+def test_stream_cancels_provider_when_client_disconnects() -> None:
+    # AC: a "stop"/closed tab mid-stream cancels the upstream provider connection
+    closed = {"called": False}
+
+    class _Events:
+        def __iter__(self):
+            return iter(["data: a\n\n", "data: b\n\n"])
+
+        def close(self) -> None:
+            closed["called"] = True
+
+    handler = _stub_stream_handler()
+    handler._stream(ud.chat.ChatStreamResponse(200, _Events()))
+
+    assert closed["called"] is True  # the disconnect released the provider stream
+
+
+def test_stream_disconnect_is_quiet_when_events_have_no_close() -> None:
+    # A plain iterator has nothing to cancel; the disconnect must still be swallowed
+    handler = _stub_stream_handler()
+
+    handler._stream(ud.chat.ChatStreamResponse(200, iter(["data: a\n\n"])))
+
+
+def test_load_models_safe_degrades_silently_without_progress(monkeypatch) -> None:
+    from local_code_bench.config import ConfigError
+
+    def _missing(path):
+        raise ConfigError("model config not found")
+
+    monkeypatch.setattr(ud, "load_models", _missing)
+
+    # no progress callback: chat is disabled silently rather than crashing the dashboard
+    assert ud._load_models_safe("configs/models.yaml", None) == {}
+
+
 def test_unknown_route_is_404() -> None:
     resp = ud.handle_request("GET", "/secrets", _ctx())
     assert resp.status == 404
