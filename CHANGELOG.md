@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v0.29.0 (2026-06-26)
+
+### Features
+
+- **unified-dashboard**: Cross-section flow and (#09.6-001)
+  ([#32](https://github.com/fxmartin/local-code-bench/pull/32),
+  [`dd8e6ed`](https://github.com/fxmartin/local-code-bench/commit/dd8e6ed5c845b63b3fbab0439b8044bcde3d2577))
+
+### Testing
+
+- **unified-dashboard**: Cross-section flow and (#09.6-001)
+  ([#32](https://github.com/fxmartin/local-code-bench/pull/32),
+  [`dd8e6ed`](https://github.com/fxmartin/local-code-bench/commit/dd8e6ed5c845b63b3fbab0439b8044bcde3d2577))
+
+
 ## v0.28.0 (2026-06-26)
 
 ### Features
