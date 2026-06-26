@@ -81,10 +81,17 @@
 
 **Technical Notes**: New `POST /api/run` handler that composes existing pieces: `start_exclusive` (08.3-001) for the inferencer, then `run_endpoint_suite` (Epic-01 runner) per selected suite, writing to a fresh `results/<run>.jsonl` via `new_run_path`. Run the suite work on a background thread; track run state (id, status, counts) in memory plus the JSONL file as source of truth. Reject concurrent launches while one is active (single-run lock). No new scoring path — reuse the sandbox. Test by patching `start_exclusive` and `run_endpoint_suite` and asserting orchestration order, the single-run lock, and run-id return.
 
+**Implementation**: `src/local_code_bench/launch.py` — `RunOrchestrator` (single-run
+lock, in-memory `RunState`, background suite thread) plus the `POST /api/run`
+handler (`launch_action` / `handle_request` / `make_server`). The exclusive start
+mirrors the inferencer dashboard's `409 {needs_confirmation, others}` contract and
+calls `manager.start_exclusive`; suites run in order through `run_endpoint_suite`,
+writing JSONL via `new_run_path`. Tests in `tests/test_launch.py`.
+
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 08.3-001, 01.2-003 (runner + JSONL), 02.1-001 (suite loaders)
 **Risk Level**: High
@@ -205,4 +212,6 @@
 **Risk Level**: Low
 
 ## Epic Progress
-**Completed**: 0 / 8 stories · 0 / 32 points
+**Completed**: 1 / 8 stories · 5 / 32 points
+
+- 09.3-001 Launch orchestration endpoint — done (`src/local_code_bench/launch.py`)
