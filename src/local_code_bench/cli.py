@@ -226,7 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument(
         "--models",
         default="configs/models.yaml",
-        help="path to model registry YAML (populates the Run launcher)",
+        help="path to model registry YAML (populates the Run launcher and powers the Chat section)",
     )
     dashboard.add_argument(
         "--suites",

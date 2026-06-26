@@ -370,6 +370,7 @@ uv run bench dashboard                       # serve on http://127.0.0.1:8765
 uv run bench dashboard --port 8888           # pick a different localhost port
 uv run bench dashboard --input results/run.jsonl   # Results section reads these files
 uv run bench dashboard --models configs/models.yaml --suites configs/suites.yaml  # Run launcher catalogs
+uv run bench dashboard --models configs/models.yaml   # model registry for chat
 ```
 
 It composes the existing surfaces rather than duplicating them: the **Inferencers**
@@ -389,6 +390,16 @@ By default the Results section reads every `*.jsonl` under `--results-dir` (defa
 `--config` and `--state-dir` point at the inferencer registry and its state dir.
 The server binds localhost only and exposes no API keys, `.env` contents, or host
 paths. This supersedes `bench inferencer dashboard`, which remains available.
+
+A `POST /api/chat` endpoint streams a model reply token-by-token over Server-Sent
+Events, so you can smoke-test a model without writing a benchmark. Post a JSON body
+of `{model, messages, system?, temperature?, max_tokens?}` — multi-turn state lives
+in the client and is sent each turn — and read back `data: {"delta": ...}` chunks
+ending in a `data: {"done": true, ...}` event with token usage. Chat talks to the
+inferencer already serving the model's `base_url`; it never starts a second server,
+so the one-active invariant holds. The model registry comes from `--models` (default
+`configs/models.yaml`); a missing registry disables chat without taking the dashboard
+down. The browser-side Chat panel lands next (story 09.7-002).
 
 ## Verification Status
 

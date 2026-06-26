@@ -8,6 +8,7 @@ from pathlib import Path
 from local_code_bench.config import InferencerConfig, ModelConfig, TokenPrices
 from local_code_bench.inferencers import manager
 from local_code_bench.inferencers.manager import InferencerStatus
+from local_code_bench.metrics import StreamEvent
 from local_code_bench.results import append_jsonl
 
 from local_code_bench import unified_dashboard as ud
@@ -80,6 +81,18 @@ def _status(name: str, *, running: bool = False, healthy: bool = False,
         port=port,
         healthy=healthy,
         detail="ok",
+    )
+
+
+def _model(name: str = "qwen") -> ModelConfig:
+    return ModelConfig(
+        name=name,
+        type="openai",
+        base_url="http://127.0.0.1:8000/v1",
+        model_id=f"{name}-id",
+        pinned_revision="main",
+        price_per_1k_tokens=TokenPrices(input=0.0, output=0.0),
+        inferencer="dflash",
     )
 
 
@@ -241,6 +254,84 @@ def test_api_data_reflects_appended_records_without_restart(tmp_path: Path) -> N
 # ---------------------------------------------------------------------------
 # routing / safety
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# chat section: POST /api/chat streams SSE through the existing provider
+# ---------------------------------------------------------------------------
+
+
+class _FakeProvider:
+    def __init__(self, model, *, events) -> None:
+        self.model = model
+        self._events = events
+
+    def stream_chat(self, request):
+        yield from self._events
+
+
+def _chat_body(model: str = "qwen") -> bytes:
+    return json.dumps(
+        {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+    ).encode("utf-8")
+
+
+def test_api_chat_streams_sse_through_provider(monkeypatch) -> None:
+    provider = _FakeProvider(
+        _model(), events=[StreamEvent(content="Hi"), StreamEvent(prompt_tokens=3, completion_tokens=1)]
+    )
+    monkeypatch.setattr(ud.chat, "provider_for_model", lambda model: provider)
+
+    resp = ud.handle_request("POST", "/api/chat", _ctx(models={"qwen": _model()}), _chat_body())
+
+    assert isinstance(resp, ud.chat.ChatStreamResponse)
+    assert resp.status == 200
+    chunks = list(resp.events)
+    assert chunks[0] == 'data: {"delta": "Hi"}\n\n'
+    assert json.loads(chunks[-1][len("data: ") : -2])["done"] is True
+
+
+def test_api_chat_unknown_model_is_400() -> None:
+    resp = ud.handle_request("POST", "/api/chat", _ctx(), _chat_body("ghost"))
+
+    assert isinstance(resp, ud.Response)
+    assert resp.status == 400
+
+
+def test_api_chat_invalid_json_body_is_400() -> None:
+    resp = ud.handle_request("POST", "/api/chat", _ctx(), b"{not json")
+
+    assert isinstance(resp, ud.Response)
+    assert resp.status == 400
+
+
+def test_api_chat_streams_over_http_and_cancels_cleanly(monkeypatch) -> None:
+    provider = _FakeProvider(
+        _model(),
+        events=[StreamEvent(content="Hel"), StreamEvent(content="lo"),
+                StreamEvent(prompt_tokens=3, completion_tokens=2)],
+    )
+    monkeypatch.setattr(ud.chat, "provider_for_model", lambda model: provider)
+
+    server = ud.make_server(_ctx(models={"qwen": _model()}), port=0)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = urllib.request.Request(
+            f"http://{host}:{port}/api/chat", data=_chat_body(), method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request) as resp:
+            assert resp.headers["Content-Type"].startswith("text/event-stream")
+            # read the first streamed token, then drop the connection (the "stop" path)
+            first = resp.readline()
+            assert first == b'data: {"delta": "Hel"}\n'
+            assert resp.readline() == b"\n"  # SSE event terminator
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_unknown_route_is_404() -> None:
@@ -458,6 +549,7 @@ def test_serve_dashboard_loads_configs_reports_progress_and_closes(monkeypatch) 
         seen["port"] = port
         seen["result_paths"] = ctx.result_paths
         seen["has_orchestrator"] = ctx.orchestrator is not None
+        seen["models"] = ctx.models
         return fake
 
     monkeypatch.setattr(ud, "make_server", _make_server)
@@ -491,3 +583,24 @@ def test_serve_dashboard_runs_without_progress_callback(monkeypatch) -> None:
     ud.serve_dashboard("configs/inferencers.yaml", ".runtime", [])
 
     assert fake.closed is True
+
+
+def test_serve_dashboard_degrades_when_models_config_is_missing(monkeypatch) -> None:
+    from local_code_bench.config import ConfigError
+
+    fake = _FakeServer()
+    seen: dict = {}
+    messages: list[str] = []
+
+    monkeypatch.setattr(ud, "load_inferencers", lambda path: {})
+
+    def _missing_models(path):
+        raise ConfigError("model config not found: configs/models.yaml")
+
+    monkeypatch.setattr(ud, "load_models", _missing_models)
+    monkeypatch.setattr(ud, "make_server", lambda ctx, **k: seen.setdefault("models", ctx.models) or fake)
+
+    ud.serve_dashboard("configs/inferencers.yaml", ".runtime", [], progress=messages.append)
+
+    assert seen["models"] == {}  # chat disabled, dashboard still serves
+    assert any("chat disabled" in msg for msg in messages)

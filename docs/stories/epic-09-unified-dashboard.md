@@ -192,10 +192,21 @@ writing JSONL via `new_run_path`. Tests in `tests/test_launch.py`.
 
 **Technical Notes**: A `POST /api/chat` handler on the Epic-09 dashboard server that builds a multi-message `ChatRequest` and streams through `provider_for_model` / `OpenAIStreamingProvider` (`src/local_code_bench/provider.py`) — reuse, not reimplementation. Stream Server-Sent Events to the browser so the existing token-by-token parsing path is mirrored client-side. Multi-turn state lives client-side and is posted each turn (no server DB), keeping with the stdlib-first, single-user model. Reuse the dashboard's response-sanitization (09.6-001). Test with a monkeypatched provider (as `tests/test_provider.py` does) asserting streamed chunks, applied params, and multi-turn message assembly — no live model.
 
+**Implementation**: `src/local_code_bench/chat.py` — `chat_action` /
+`build_chat_request` / `sse_chat_events` parse a multi-turn body and stream the reply
+token-by-token as SSE through `provider_for_model`. The provider
+(`src/local_code_bench/provider.py`) gained a multi-turn `ChatRequest`
+(`messages` + `system`) used by both the OpenAI and Anthropic adapters. The
+`POST /api/chat` route is wired into the unified dashboard server
+(`src/local_code_bench/unified_dashboard.py`), which now loads the model registry via
+`--models` (best-effort, chat-disabling on failure). Tests in `tests/test_chat.py`
+plus chat-routing tests in `tests/test_unified_dashboard.py` and provider multi-turn
+tests in `tests/test_provider.py`.
+
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 09.1-001, 01.1-003 (OpenAI-compatible provider)
 **Risk Level**: Medium
@@ -227,3 +238,4 @@ writing JSONL via `new_run_path`. Tests in `tests/test_launch.py`.
 - [x] 09.1-001 — Single-page unified dashboard with Inferencers / Results / Run sections (5 pts)
 - [x] 09.2-001 — Compose a benchmark from model + inferencer + suites (5 pts) (`src/local_code_bench/unified_dashboard.py`)
 - 09.3-001 Launch orchestration endpoint — done (`src/local_code_bench/launch.py`)
+- [x] 09.7-001 — Streaming chat endpoint (5 pts) — done (`src/local_code_bench/chat.py`)

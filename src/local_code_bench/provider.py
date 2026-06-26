@@ -23,10 +23,33 @@ class ProviderError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class Message:
+    """One turn in a chat conversation."""
+
+    role: str
+    content: str
+
+
+@dataclass(frozen=True)
 class ChatRequest:
-    prompt: str
+    prompt: str = ""
     temperature: float = 0.0
     max_tokens: int | None = None
+    messages: tuple[Message, ...] | None = None
+    system: str | None = None
+
+
+def _chat_messages(request: ChatRequest) -> list[dict[str, str]]:
+    """The conversation turns as OpenAI/Anthropic message dicts (no system role).
+
+    A multi-turn ``request.messages`` is used verbatim; otherwise the single-turn
+    ``request.prompt`` is wrapped as one user message, preserving the existing
+    suite/sweep behaviour.
+    """
+
+    if request.messages is not None:
+        return [{"role": m.role, "content": m.content} for m in request.messages]
+    return [{"role": "user", "content": request.prompt}]
 
 
 class OpenAIStreamingProvider:
@@ -44,9 +67,12 @@ class OpenAIStreamingProvider:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        messages = _chat_messages(request)
+        if request.system:
+            messages = [{"role": "system", "content": request.system}, *messages]
         body: dict[str, Any] = {
             "model": self._model.model_id,
-            "messages": [{"role": "user", "content": request.prompt}],
+            "messages": messages,
             "temperature": request.temperature,
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -92,13 +118,15 @@ class AnthropicStreamingProvider:
             "x-api-key": api_key or "",
             "anthropic-version": "2023-06-01",
         }
-        body = {
+        body: dict[str, Any] = {
             "model": self._model.model_id,
             "max_tokens": request.max_tokens or 4096,
             "temperature": request.temperature,
             "stream": True,
-            "messages": [{"role": "user", "content": request.prompt}],
+            "messages": _chat_messages(request),
         }
+        if request.system:
+            body["system"] = request.system
         if self._model.extra_body:
             body.update(self._model.extra_body)
         http_request = urllib.request.Request(
