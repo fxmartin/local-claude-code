@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.30.0 (2026-06-26)
+
+### Features
+
+- **unified-dashboard**: Chat panel ui (#09.7-002)
+  ([`8a04cec`](https://github.com/fxmartin/local-code-bench/commit/8a04cecb843d49f4dd57946520a46efff5dff88e))
+
+### Testing
+
+- **unified-dashboard**: Chat panel ui (#09.7-002)
+  ([`b8bf597`](https://github.com/fxmartin/local-code-bench/commit/b8bf59778abc695ec052401e0de19b73067ef473))
+
+
 ## v0.29.0 (2026-06-26)
 
 ### Features
