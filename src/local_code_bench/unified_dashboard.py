@@ -29,8 +29,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from . import chat
 from . import dashboard_server as results_panel
-from .config import InferencerConfig, ModelConfig, load_inferencers, load_models
+from .config import (
+    ConfigError,
+    InferencerConfig,
+    ModelConfig,
+    load_inferencers,
+    load_models,
+)
 from .inferencers import dashboard as inferencer_panel
 from .launch import RunOrchestrator, launch_action
 from .suite_catalog import catalog_payload
@@ -97,8 +104,16 @@ def catalog_action(ctx: DashboardContext) -> tuple[int, dict]:
     return 200, {"models": models, "inferencers": inferencers, "suites": suites}
 
 
-def handle_request(method: str, path: str, ctx: DashboardContext, body: bytes = b"") -> Response:
-    """Route one request to the unified page or a delegated section action."""
+def handle_request(
+    method: str, path: str, ctx: DashboardContext, body: bytes = b""
+) -> Response | chat.ChatStreamResponse:
+    """Route one request to the unified page or a delegated section action.
+
+    ``body`` carries the raw POST payload; only ``/api/chat`` and ``/api/run`` consume
+    it (the other POST actions are driven by query params). A chat launch returns a
+    streaming :class:`chat.ChatStreamResponse`; everything else returns a buffered
+    ``Response``.
+    """
 
     parts = urlsplit(path)
     route = parts.path
@@ -125,6 +140,15 @@ def handle_request(method: str, path: str, ctx: DashboardContext, body: bytes = 
         return _json(*catalog_action(ctx))
     if method == "POST" and route == "/api/run":
         return _json(*_run_action(ctx, body))
+    if method == "POST" and route == "/api/chat":
+        try:
+            parsed = json.loads(body or b"{}")
+        except json.JSONDecodeError:
+            return _json(400, {"error": "invalid JSON body"})
+        result = chat.chat_action(parsed, ctx.models)
+        if isinstance(result, chat.ChatStreamResponse):
+            return result
+        return _json(*result)
     return _json(404, {"error": "not found"})
 
 
@@ -146,11 +170,31 @@ def make_handler(ctx: DashboardContext) -> type[BaseHTTPRequestHandler]:
     class _DashboardHandler(BaseHTTPRequestHandler):
         def _dispatch(self, method: str, body: bytes = b"") -> None:
             response = handle_request(method, self.path, ctx, body)
+            if isinstance(response, chat.ChatStreamResponse):
+                self._stream(response)
+                return
             self.send_response(response.status)
             self.send_header("Content-Type", response.content_type)
             self.send_header("Content-Length", str(len(response.body)))
             self.end_headers()
             self.wfile.write(response.body)
+
+        def _stream(self, response: chat.ChatStreamResponse) -> None:
+            self.send_response(response.status)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            try:
+                for piece in response.events:
+                    self.wfile.write(piece.encode("utf-8"))
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                # Client hit "stop" / closed the tab: cancel the stream cleanly so the
+                # upstream provider connection is released.
+                close = getattr(response.events, "close", None)
+                if callable(close):
+                    close()
 
         def do_GET(self) -> None:  # noqa: N802 - http.server callback name
             self._dispatch("GET")
@@ -194,11 +238,14 @@ def serve_dashboard(
 
     Serves until interrupted. The launch orchestrator is wired here so the Run
     section's form (story 09.2-001) posts to the same single-run authority Epic-08's
-    exclusive start lives behind (story 09.3-001).
+    exclusive start lives behind (story 09.3-001). The model registry also powers the
+    Chat section (story 09.7-001); it is loaded best-effort so a missing/invalid
+    ``models.yaml`` disables chat (and leaves the launcher with no models) without
+    taking the rest of the dashboard down.
     """
 
     configs = load_inferencers(config_path)
-    models = load_models(models_path)
+    models = _load_models_safe(models_path, progress)
     orchestrator = RunOrchestrator(
         models=models,
         inferencers=configs,
@@ -224,6 +271,19 @@ def serve_dashboard(
         pass
     finally:
         server.server_close()
+
+
+def _load_models_safe(
+    models_path: str | Path, progress: Callable[[str], None] | None
+) -> dict[str, ModelConfig]:
+    """Load the model registry, degrading to an empty catalog (no chat) on failure."""
+
+    try:
+        return load_models(models_path)
+    except ConfigError as exc:
+        if progress is not None:
+            progress(f"chat disabled: {exc}")
+        return {}
 
 
 def render_page() -> str:

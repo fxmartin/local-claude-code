@@ -126,6 +126,72 @@ def test_parse_openai_sse_lines_reports_malformed_json() -> None:
         list(parse_openai_sse_lines(["data: {bad json}\n"]))
 
 
+def test_openai_provider_sends_multi_turn_messages(monkeypatch) -> None:
+    from local_code_bench.provider import Message
+
+    request = ChatRequest(
+        messages=(
+            Message("user", "hi"),
+            Message("assistant", "hello"),
+            Message("user", "more"),
+        )
+    )
+    body = _capture_openai_body(monkeypatch, request)
+
+    assert body["messages"] == [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "user", "content": "more"},
+    ]
+
+
+def test_openai_provider_prepends_system_message(monkeypatch) -> None:
+    from local_code_bench.provider import Message
+
+    request = ChatRequest(messages=(Message("user", "hi"),), system="Be terse.")
+    body = _capture_openai_body(monkeypatch, request)
+
+    assert body["messages"][0] == {"role": "system", "content": "Be terse."}
+    assert body["messages"][1] == {"role": "user", "content": "hi"}
+    assert body["temperature"] == 0.0
+
+
+def test_openai_provider_falls_back_to_prompt_when_no_messages(monkeypatch) -> None:
+    body = _capture_openai_body(monkeypatch, ChatRequest(prompt="just this"))
+
+    assert body["messages"] == [{"role": "user", "content": "just this"}]
+
+
+def test_anthropic_provider_lifts_system_out_of_messages(monkeypatch) -> None:
+    from local_code_bench.provider import AnthropicStreamingProvider, Message
+
+    model = ModelConfig(
+        name="claude",
+        type="anthropic",
+        base_url="https://example.test/v1",
+        model_id="claude-x",
+        pinned_revision="manual",
+        price_per_1k_tokens=TokenPrices(input=0.0, output=0.0),
+    )
+    captured: dict = {}
+
+    def fake_urlopen(http_request, timeout=None):
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))
+        return _FakeResponse([b'data: {"type":"message_stop"}\n'])
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    request = ChatRequest(
+        messages=(Message("user", "hi"), Message("assistant", "yo")), system="Be terse."
+    )
+    list(AnthropicStreamingProvider(model).stream_chat(request))
+
+    assert captured["body"]["system"] == "Be terse."
+    assert captured["body"]["messages"] == [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "yo"},
+    ]
+
+
 def test_openai_provider_rejects_non_openai_model() -> None:
     model = ModelConfig(
         name="claude",

@@ -352,16 +352,19 @@ def test_unified_dashboard_command_invokes_server(monkeypatch) -> None:
     monkeypatch.setattr("local_code_bench.unified_dashboard.serve_dashboard", fake_serve)
 
     exit_code = main(
-        ["dashboard", "--port", "9001", "--config", "x.yaml", "--input", "results/a.jsonl"]
+        [
+            "dashboard", "--port", "9001", "--config", "x.yaml",
+            "--models", "custom/models.yaml", "--input", "results/a.jsonl",
+        ]
     )
 
     assert exit_code == 0
     assert captured["port"] == 9001
     assert captured["config"] == "x.yaml"
+    assert captured["models_path"] == "custom/models.yaml"
     assert captured["host"] == "127.0.0.1"
     assert captured["result_paths"] == [Path("results/a.jsonl")]
-    # the Run launcher's catalogs come from the model + suite registries
-    assert captured["models_path"] == "configs/models.yaml"
+    # the Run launcher's suite catalog falls back to the default registry
     assert captured["suites_path"] == "configs/suites.yaml"
 
 
