@@ -739,6 +739,41 @@ def test_api_data_picks_up_new_run_file_from_results_dir(tmp_path: Path) -> None
     assert payload["endpoint_models"][0]["model"] == "m9"
 
 
+def test_api_run_by_id_without_orchestrator_is_404() -> None:
+    # the /api/run/<id> route falls through to 404 when no orchestrator is wired.
+    resp = ud.handle_request("GET", "/api/run/anything", _ctx())
+    assert resp.status == 404
+    assert json.loads(resp.body)["error"] == "unknown run"
+
+
+def test_resolve_result_paths_ignores_missing_results_dir(tmp_path: Path) -> None:
+    # results_dir set but not an existing directory -> only explicit paths are used.
+    explicit = tmp_path / "explicit.jsonl"
+    ctx = ud.DashboardContext(
+        configs=_configs(), state_dir=".runtime", result_paths=[explicit],
+        results_dir=tmp_path / "nope",
+    )
+    assert ud._resolve_result_paths(ctx) == [explicit]
+
+
+def test_resolve_result_paths_dedupes_explicit_and_globbed(tmp_path: Path) -> None:
+    # a file passed explicitly AND found under results_dir appears exactly once.
+    results_dir = tmp_path / "results"
+    shared = results_dir / "run.jsonl"
+    append_jsonl(shared, _endpoint_record("m1", "HumanEval/0", passed=True))
+    other = results_dir / "other.jsonl"
+    append_jsonl(other, _endpoint_record("m2", "HumanEval/0", passed=True))
+
+    ctx = ud.DashboardContext(
+        configs=_configs(), state_dir=".runtime", result_paths=[shared],
+        results_dir=results_dir,
+    )
+    resolved = ud._resolve_result_paths(ctx)
+
+    assert resolved.count(shared) == 1  # not duplicated by the glob
+    assert other in resolved  # the new sibling file is still picked up
+
+
 def test_run_section_has_live_monitor_markup() -> None:
     body = ud.render_page()
     assert 'id="runs"' in body  # live run monitor table body

@@ -598,6 +598,44 @@ def test_accumulated_metrics_ignores_non_task_records(tmp_path):
     assert metrics["decode_tokens_per_second"] == pytest.approx(90.0)
 
 
+def test_accumulated_metrics_skips_blank_lines_and_taskless_records(tmp_path):
+    from local_code_bench.results import append_jsonl
+
+    path = tmp_path / "run.jsonl"
+    # an endpoint record with no task_id (e.g. a run header) is ignored ...
+    append_jsonl(path, {"run_mode": "endpoint", "suite": "humaneval"})
+    # ... and so are blank lines a flushing writer can leave between records.
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("\n   \n")
+    append_jsonl(path, _endpoint_metric_record("t0", cost=0.07, decode=80.0))
+
+    metrics = launch.accumulated_metrics(path)
+
+    assert metrics["cost_usd"] == pytest.approx(0.07)
+    assert metrics["decode_tokens_per_second"] == pytest.approx(80.0)
+
+
+def test_accumulated_metrics_ignores_non_numeric_cost_and_decode(tmp_path):
+    from local_code_bench.results import append_jsonl
+
+    path = tmp_path / "run.jsonl"
+    # a malformed task record: cost is a bool, metrics is not a dict -> both skipped,
+    # leaving no cost seen and no decode sample.
+    append_jsonl(path, {"run_mode": "endpoint", "task_id": "t0", "cost_usd": True, "metrics": "n/a"})
+    # a task record whose decode speed is non-numeric -> the decode sample is skipped
+    # while a numeric cost is still counted.
+    append_jsonl(
+        path,
+        {"run_mode": "endpoint", "task_id": "t1", "cost_usd": 0.02,
+         "metrics": {"decode_tokens_per_second": "fast"}},
+    )
+
+    metrics = launch.accumulated_metrics(path)
+
+    assert metrics["cost_usd"] == pytest.approx(0.02)
+    assert metrics["decode_tokens_per_second"] is None
+
+
 def _inject_state(orch, **kwargs):
     defaults = dict(
         id="r1",
