@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 
 import pytest
 
@@ -360,3 +362,128 @@ def test_decode_lines_and_redact_helpers() -> None:
     assert list(_decode_lines([b"hello\n", "world\n"])) == ["hello\n", "world\n"]
     assert _redact("secret leaked", "secret") == "[REDACTED] leaked"
     assert _redact("plain", None) == "plain"
+
+
+# ---------------------------------------------------------------------------
+# stream_chat: auth header + error normalization
+# ---------------------------------------------------------------------------
+
+
+def _keyed_openai_model() -> ModelConfig:
+    return ModelConfig(
+        name="cloud",
+        type="openai",
+        base_url="https://example.test/v1",
+        model_id="qwen",
+        pinned_revision="manual",
+        price_per_1k_tokens=TokenPrices(input=0.0, output=0.0),
+        api_key_env="OPENROUTER_API_KEY",
+    )
+
+
+def _anthropic_model() -> ModelConfig:
+    return ModelConfig(
+        name="claude",
+        type="anthropic",
+        base_url="https://example.test/v1",
+        model_id="claude-x",
+        pinned_revision="manual",
+        price_per_1k_tokens=TokenPrices(input=0.0, output=0.0),
+    )
+
+
+def _capture_openai_headers(monkeypatch, model: ModelConfig) -> dict:
+    captured: dict = {}
+
+    def fake_urlopen(http_request, timeout=None):
+        captured["headers"] = dict(http_request.headers)
+        return _FakeResponse([b"data: [DONE]\n"])
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    list(OpenAIStreamingProvider(model).stream_chat(ChatRequest(prompt="hi")))
+    return captured["headers"]
+
+
+def test_openai_provider_sets_authorization_header(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-123")
+    _load_env_file.cache_clear()
+    headers = _capture_openai_headers(monkeypatch, _keyed_openai_model())
+
+    assert headers["Authorization"] == "Bearer sk-test-123"
+
+
+def _http_error(code: int, body: bytes) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        url="https://example.test/v1/chat/completions",
+        code=code,
+        msg="boom",
+        hdrs=None,  # type: ignore[arg-type]
+        fp=io.BytesIO(body),
+    )
+
+
+def test_openai_provider_normalizes_http_error(monkeypatch) -> None:
+    def fake_urlopen(http_request, timeout=None):
+        raise _http_error(503, b"server unavailable")
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(ProviderError, match="HTTP 503"):
+        list(OpenAIStreamingProvider(_openai_model()).stream_chat(ChatRequest(prompt="hi")))
+
+
+def test_openai_provider_normalizes_url_error(monkeypatch) -> None:
+    def fake_urlopen(http_request, timeout=None):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(ProviderError, match="request failed"):
+        list(OpenAIStreamingProvider(_openai_model()).stream_chat(ChatRequest(prompt="hi")))
+
+
+def test_openai_provider_normalizes_timeout(monkeypatch) -> None:
+    def fake_urlopen(http_request, timeout=None):
+        raise TimeoutError
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(ProviderError, match="timed out"):
+        list(OpenAIStreamingProvider(_openai_model()).stream_chat(ChatRequest(prompt="hi")))
+
+
+def test_anthropic_provider_merges_extra_body(monkeypatch) -> None:
+    model = ModelConfig(
+        name="claude",
+        type="anthropic",
+        base_url="https://example.test/v1",
+        model_id="claude-x",
+        pinned_revision="manual",
+        price_per_1k_tokens=TokenPrices(input=0.0, output=0.0),
+        extra_body={"thinking": {"type": "enabled"}},
+    )
+    captured: dict = {}
+
+    def fake_urlopen(http_request, timeout=None):
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))
+        return _FakeResponse([b'data: {"type":"message_stop"}\n'])
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    list(AnthropicStreamingProvider(model).stream_chat(ChatRequest(prompt="hi")))
+
+    assert captured["body"]["thinking"] == {"type": "enabled"}
+
+
+def test_anthropic_provider_normalizes_http_error(monkeypatch) -> None:
+    def fake_urlopen(http_request, timeout=None):
+        raise _http_error(429, b"rate limited")
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(ProviderError, match="HTTP 429"):
+        list(AnthropicStreamingProvider(_anthropic_model()).stream_chat(ChatRequest(prompt="hi")))
+
+
+def test_anthropic_provider_normalizes_url_error(monkeypatch) -> None:
+    def fake_urlopen(http_request, timeout=None):
+        raise urllib.error.URLError("dns failure")
+
+    monkeypatch.setattr("local_code_bench.provider.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(ProviderError, match="request failed"):
+        list(AnthropicStreamingProvider(_anthropic_model()).stream_chat(ChatRequest(prompt="hi")))

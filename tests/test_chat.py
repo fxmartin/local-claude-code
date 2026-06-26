@@ -160,6 +160,27 @@ def test_build_chat_request_rejects_non_positive_max_tokens() -> None:
         )
 
 
+def test_build_chat_request_rejects_non_mapping_turn() -> None:
+    with pytest.raises(chat.ChatError, match="must be a mapping"):
+        chat.build_chat_request({"messages": ["not-a-dict"]}, model=_model())
+
+
+def test_build_chat_request_rejects_non_string_system() -> None:
+    with pytest.raises(chat.ChatError, match="system must be a string"):
+        chat.build_chat_request(
+            {"messages": [{"role": "user", "content": "hi"}], "system": 42},
+            model=_model(),
+        )
+
+
+def test_build_chat_request_rejects_non_numeric_temperature() -> None:
+    with pytest.raises(chat.ChatError, match="temperature must be a number"):
+        chat.build_chat_request(
+            {"messages": [{"role": "user", "content": "hi"}], "temperature": True},
+            model=_model(),
+        )
+
+
 # ---------------------------------------------------------------------------
 # chat_action: validation + streaming
 # ---------------------------------------------------------------------------
