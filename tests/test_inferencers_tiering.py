@@ -464,9 +464,30 @@ def test_remove_path_handles_missing_file_dir_and_errors(tmp_path: Path) -> None
     assert not d.parent.exists()
 
 
+def test_remove_path_swallows_unlink_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An OSError from the unlink itself (e.g. a permission/IO fault, not "missing")
+    # must be swallowed so cleanup never masks the real failure being handled.
+    f = tmp_path / "f"
+    f.write_text("x")
+
+    def boom(self: Path, *args: object, **kwargs: object) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "unlink", boom)
+    tiering._remove_path(f)  # does not raise
+
+
 def test_existing_ancestor_walks_up_to_an_existing_dir(tmp_path: Path) -> None:
     deep = tmp_path / "x" / "y" / "z" / "w"
     assert tiering._existing_ancestor(deep) == tmp_path
+
+
+def test_existing_ancestor_stops_at_filesystem_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    # When nothing along the chain exists, the walk halts at the root (parent ==
+    # self) rather than looping forever, returning that topmost path.
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+    root = Path("/a/b/c").anchor
+    assert tiering._existing_ancestor(Path("/a/b/c")) == Path(root)
 
 
 def test_content_hash_distinguishes_tree_changes(tmp_path: Path) -> None:
@@ -501,6 +522,13 @@ def test_path_size_counts_file_and_tree(tmp_path: Path) -> None:
 )
 def test_human_bytes_scales_units(count: int, expected: str) -> None:
     assert tiering._human_bytes(count) == expected
+
+
+def test_human_bytes_falls_back_when_no_units(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Defensive tail: with an empty unit table the scaling loop never runs, so the
+    # raw byte count is returned rather than crashing.
+    monkeypatch.setattr(tiering, "_UNITS", ())
+    assert tiering._human_bytes(42) == "42 B"
 
 
 # ===========================================================================
