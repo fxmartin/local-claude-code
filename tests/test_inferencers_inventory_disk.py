@@ -227,6 +227,44 @@ def test_shared_artifact_is_not_a_duplicate() -> None:
     assert report.duplicates == ()
 
 
+def test_three_copies_reclaim_all_but_the_largest() -> None:
+    # With more than two physical copies, consolidation keeps only the single
+    # largest copy; everything else is reclaimable.
+    models = [
+        _local(
+            inferencer="llama-cpp",
+            identity="/a.gguf",
+            store_format="gguf",
+            name="Llama-3.2-3B-Q4_K_M",
+            size_bytes=1000,
+        ),
+        _local(
+            inferencer="mlx-lm",
+            identity="/cache/repo",
+            store_format="mlx",
+            name="mlx-community/Llama-3.2-3B",
+            size_bytes=3000,
+        ),
+        _local(
+            inferencer="gpt4all",
+            identity="/b.gguf",
+            store_format="gguf",
+            name="Llama-3.2-3B-IQ3_XXS",
+            size_bytes=2000,
+        ),
+    ]
+
+    report = disk_report(models)
+
+    assert len(report.duplicates) == 1
+    dup = report.duplicates[0]
+    assert dup.base == "llama-3.2-3b"
+    assert len(dup.artifacts) == 3
+    assert dup.total_bytes == 6000
+    # Keep the 3000 copy; reclaim the 1000 + 2000 redundant ones.
+    assert dup.reclaimable_bytes == 3000
+
+
 def test_duplicates_are_sorted_by_base_key() -> None:
     models = [
         _local(
@@ -272,6 +310,12 @@ def test_duplicates_are_sorted_by_base_key() -> None:
 )
 def test_base_model_key_normalizes_provider_quant_and_format(name: str, expected: str) -> None:
     assert base_model_key(name) == expected
+
+
+def test_base_model_key_keeps_a_quant_token_that_is_not_a_trailing_suffix() -> None:
+    # A quant-looking token in the middle of the name is not a trailing quant
+    # suffix, so it is preserved rather than stripped.
+    assert base_model_key("Qwen-Q4_K_M-Coder-7B") == "qwen-q4_k_m-coder-7b"
 
 
 def test_base_model_key_collapses_gguf_and_mlx_names_of_one_model() -> None:
