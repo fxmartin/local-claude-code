@@ -89,9 +89,9 @@
 **Technical Notes**: A pure grouping function over `LocalModel`s in `inventory.py` returning sharing sets. Format compatibility is the first key so an MLX and a GGUF copy of the same base model are never merged as one stored artifact (they are surfaced separately, and the duplicate-download case is handled by 11.6). Symlinked/shared directories collapse via realpath.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 11.2-001
 **Risk Level**: Medium
@@ -171,4 +171,4 @@
 **Risk Level**: Low
 
 ## Epic Progress
-**Completed**: 0 / 6 stories · 0 / 24 points
+**Completed**: 3 / 6 stories · 13 / 24 points
