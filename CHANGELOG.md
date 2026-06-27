@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.46.0 (2026-06-27)
+
+### Features
+
+- **tiered-model-storage**: Cli tier inventory and move (#12.6-001)
+  ([`b89225c`](https://github.com/fxmartin/local-code-bench/commit/b89225c142c1b395c1de70ba5043bd4598467d5c))
+
+- **tiered-model-storage**: Dashboard tier view and move (#12.6-002)
+  ([`f3ca04a`](https://github.com/fxmartin/local-code-bench/commit/f3ca04aa092d2c8eae7df04685547eab39fc8bca))
+
+### Testing
+
+- **tiered-model-storage**: Cli tier inventory and move (#12.6-001)
+  ([`1d1e941`](https://github.com/fxmartin/local-code-bench/commit/1d1e941291de43eab000f3491a0cac5d9128dbeb))
+
+- **tiered-model-storage**: Dashboard tier view and move (#12.6-002)
+  ([`1b56d05`](https://github.com/fxmartin/local-code-bench/commit/1b56d05ab1270f83f36a3f4485b0ea6752617029))
+
+
 ## v0.45.0 (2026-06-27)
 
 ### Features
