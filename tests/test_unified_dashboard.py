@@ -1911,3 +1911,187 @@ def test_inventory_section_has_tier_view_and_controls() -> None:
     assert 'id="tier-apply"' in body
     assert "/api/tier-plan" in body
     assert "/api/tier-apply" in body
+
+
+# --- coverage gaps: move-control edge cases + tier-config resilience -------
+
+
+def test_api_promote_no_compatible_inferencer_is_404(monkeypatch) -> None:
+    # The external model exists, but no local store can serve its format: 404.
+    _mounted(monkeypatch)
+    monkeypatch.setattr(
+        ud.tiered,
+        "scan_external_tier",
+        lambda cfg, infs, **k: [_ext_model("m", fmt="mlx")],
+    )
+
+    resp = ud.handle_request("POST", "/api/promote?name=m&format=mlx", _tier_ctx())
+
+    assert resp.status == 404
+    assert "no inferencer" in json.loads(resp.body)["error"]
+
+
+def test_api_demote_without_external_tier_configured_is_409() -> None:
+    # Nothing to demote to when no external tier is configured.
+    resp = ud.handle_request(
+        "POST", "/api/demote?name=m&format=gguf", _tier_ctx(external=False)
+    )
+
+    assert resp.status == 409
+    assert "nowhere to demote" in json.loads(resp.body)["error"]
+
+
+def test_api_demote_unknown_local_model_is_404(monkeypatch) -> None:
+    # A model absent from the local tier cannot be demoted: 404.
+    _mounted(monkeypatch)
+    monkeypatch.setattr(ud.inventory, "scan_inferencers", lambda configs, **k: [])
+
+    resp = ud.handle_request("POST", "/api/demote?name=ghost&format=gguf", _tier_ctx())
+
+    assert resp.status == 404
+    assert "not found on the local tier" in json.loads(resp.body)["error"]
+
+
+def test_find_external_without_external_tier_is_none() -> None:
+    # The lookup short-circuits to None when no external tier is configured.
+    assert ud._find_external(_tier_ctx(external=False), "m", "gguf") is None
+
+
+def _no_store_cfg(name: str = "app", port: int = 4321) -> InferencerConfig:
+    return InferencerConfig(
+        name=name,
+        lifecycle="server",
+        detect_kind="binary",
+        detect_target=name,
+        port=port,
+        health_url="http://127.0.0.1:{port}/v1/models",
+        start=(name, "serve"),
+        model_store=(),
+        store_format="gguf",
+    )
+
+
+def test_local_free_bytes_skips_inferencers_without_a_store() -> None:
+    # An inferencer with no local store contributes no volume: None when none do.
+    ctx = ud.DashboardContext(configs={"app": _no_store_cfg()}, state_dir=".runtime")
+
+    assert ud._local_free_bytes(ctx) is None
+
+
+def test_local_free_bytes_returns_none_when_volume_probe_fails(monkeypatch) -> None:
+    # A volume that cannot be stat'd is skipped; with no other store, None.
+    def boom(_path):
+        raise OSError("device not ready")
+
+    monkeypatch.setattr(ud.shutil, "disk_usage", boom)
+    ctx = ud.DashboardContext(configs={"dflash": _store_cfg("dflash", 8000, "gguf")}, state_dir=".x")
+
+    assert ud._local_free_bytes(ctx) is None
+
+
+def test_api_tier_apply_surfaces_demote_failure_as_409(monkeypatch) -> None:
+    # A failure mid-apply (in-use / no space) surfaces verbatim as a 409.
+    monkeypatch.setattr(ud.inventory, "scan_inferencers", lambda configs, **k: [])
+    _mounted(monkeypatch)
+    monkeypatch.setattr(
+        ud.autotier,
+        "plan_autotier",
+        lambda *a, **k: _plan(evictions=(_eviction("old", 300),), bytes_reclaimed=300),
+    )
+
+    def boom(*a, **k):
+        raise _tiering.DemoteError("old is in use and could be serving requests")
+
+    monkeypatch.setattr(ud.autotier, "apply_plan", boom)
+
+    resp = ud.handle_request(
+        "POST", "/api/tier-apply", _tier_ctx(autotier=AutoTierConfig(max_local_gb=1.0))
+    )
+
+    assert resp.status == 409
+    assert "could be serving" in json.loads(resp.body)["error"]
+
+
+class _CollectingWfile:
+    """A wfile that records every write, as a healthy client connection would."""
+
+    def __init__(self) -> None:
+        self.chunks: list[bytes] = []
+
+    def write(self, data: bytes) -> int:
+        self.chunks.append(data)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+
+def test_stream_writes_every_event_to_a_healthy_client() -> None:
+    # The happy path: all SSE events flow through to a client that never drops.
+    wfile = _CollectingWfile()
+    handler = _stub_handler_with_wfile(wfile)
+    response = ud.chat.ChatStreamResponse(200, ["data: a\n\n", "data: b\n\n"])
+
+    handler._stream(response)
+
+    assert b"".join(wfile.chunks) == b"data: a\n\ndata: b\n\n"
+
+
+def test_load_tier_configs_safe_disables_both_tiers_on_malformed_config(monkeypatch) -> None:
+    # A malformed external/auto-tier block degrades that feature to disabled and
+    # reports it through the progress callback rather than taking the page down.
+    monkeypatch.setattr(
+        ud, "load_external_repo", lambda p: (_ for _ in ()).throw(ud.ConfigError("bad external"))
+    )
+    monkeypatch.setattr(
+        ud, "load_autotier", lambda p: (_ for _ in ()).throw(ud.ConfigError("bad autotier"))
+    )
+    notices: list[str] = []
+
+    external_cfg, autotier_cfg = ud._load_tier_configs_safe("cfg.yaml", notices.append)
+
+    assert external_cfg is None
+    assert autotier_cfg is None
+    assert any("external tier disabled" in n for n in notices)
+    assert any("auto-tiering disabled" in n for n in notices)
+
+
+def test_load_tier_configs_safe_disables_silently_without_progress(monkeypatch) -> None:
+    # With no progress callback, malformed blocks still degrade to disabled quietly.
+    monkeypatch.setattr(
+        ud, "load_external_repo", lambda p: (_ for _ in ()).throw(ud.ConfigError("bad"))
+    )
+    monkeypatch.setattr(
+        ud, "load_autotier", lambda p: (_ for _ in ()).throw(ud.ConfigError("bad"))
+    )
+
+    assert ud._load_tier_configs_safe("cfg.yaml", None) == (None, None)
+
+
+def test_find_external_skips_non_matching_models(monkeypatch) -> None:
+    # The scan is filtered by name + format; earlier non-matches are skipped.
+    monkeypatch.setattr(
+        ud.tiered,
+        "scan_external_tier",
+        lambda cfg, infs, **k: [_ext_model("other"), _ext_model("m")],
+    )
+
+    found = ud._find_external(_tier_ctx(), "m", "gguf")
+
+    assert found is not None and found.name == "m"
+
+
+def test_find_local_skips_non_matching_models(monkeypatch) -> None:
+    # The local scan is filtered by name + format; earlier non-matches are skipped.
+    monkeypatch.setattr(
+        ud.inventory,
+        "scan_inferencers",
+        lambda configs, **k: [
+            _stored("dflash", "gguf", "other", "/store/other.gguf", 100),
+            _stored("dflash", "gguf", "m", "/store/m.gguf", 100),
+        ],
+    )
+
+    found = ud._find_local(_tier_ctx(), "m", "gguf")
+
+    assert found is not None and found.name == "m"
