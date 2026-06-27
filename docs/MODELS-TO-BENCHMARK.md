@@ -35,6 +35,7 @@ Purpose-built or coder-tuned models that are the natural local competitors.
 | Devstral Small 2 (24B) | 24B | Dense | 256K | Apache 2.0 | Comfortable, room for long context | Mistral's agentic SWE specialist; strong tool-use, designed for single-machine coding agents |
 | Qwen3-Coder-30B-A3B | 30B total / 3B active | Sparse MoE | long | Apache 2.0 | Comfortable | Coder-tuned MoE, efficient, a like-for-like MoE coder against the dense Devstral |
 | Qwen3-Coder-Next (80B-A3B) | 80B total / 3B active | Hybrid attention + MoE | 256K | Apache 2.0 | Stretch: needs about 3-bit to fit with context | Best efficiency per active parameter, around 70% on SWE-bench Verified; the "how far can 48 GB push" entry |
+| Ornith-1.0-35B | 35B total / ~3B active | Sparse MoE (256 experts, 8 active + 1 shared) + hybrid Gated DeltaNet attention | 256K | MIT | Comfortable (~21 GB at 4-bit) | Agentic-coding MoE specialist: fine-tuned from Qwen3.5-35B-A3B with self-scaffolding RL (DeepReinforce), claims near-27B-dense coding/tool-use quality at ~3B active. Same 35B/A3B size class as the TurboQuant baseline — the cleanest coder-tuned-vs-general MoE contrast. MLX build exists, so it runs on the existing MLX servers |
 
 ## Tier 3: architecture and family contrasts (comparative value)
 
@@ -65,7 +66,10 @@ hosted endpoints rather than locally:
 ## Suggested benchmarking order
 
 1. Add the two Tier 2 specialists (Devstral Small 2, Qwen3-Coder-30B-A3B) first;
-   they are the strongest local agentic coders that fit comfortably.
+   they are the strongest local agentic coders that fit comfortably. Add
+   Ornith-1.0-35B alongside them — same 35B/A3B class as the TurboQuant baseline,
+   so it is the most direct coder-tuned-vs-general MoE comparison and reuses the
+   existing MLX server path.
 2. Add gpt-oss-20b for a non-Qwen architecture point.
 3. Add Qwen3-Coder-Next as the deliberate "stretch the 48 GB envelope" case, using a
    low-bit quant, and watch for the swap cliff seen in Part 1.
@@ -99,3 +103,7 @@ hosted endpoints rather than locally:
 - gpt-oss-20b: https://huggingface.co/openai/gpt-oss-20b
 - gpt-oss-120b: https://huggingface.co/openai/gpt-oss-120b
 - Qwen3 Technical Report (family sizes, dense and MoE, thinking modes): https://arxiv.org/abs/2505.09388
+- Ornith-1.0-35B (DeepReinforce): https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B
+- Ornith-1.0-35B GGUF: https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B-GGUF
+- Ornith-1.0-35B MLX (mixed 5/8-bit, third-party): https://huggingface.co/leonsarmiento/Ornith-1.0-35B-5bit-mlx
+- Ornith-1.0-35B overview (Andrew Zhu, Medium): https://xhinker.medium.com/ornith-1-0-35b-the-moe-model-that-runs-like-3b-thinks-like-27b-1e7a0fe5a64e
