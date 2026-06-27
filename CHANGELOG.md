@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.38.1 (2026-06-27)
+
+### Bug Fixes
+
+- **local-model-inventory**: Detect models usable by (#11.3-001)
+  ([`f226b52`](https://github.com/fxmartin/local-code-bench/commit/f226b52819ef8a466d1b32c3e76cdfd345ee9060))
+
+### Testing
+
+- **local-model-inventory**: Detect models usable by (#11.3-001)
+  ([`49a11da`](https://github.com/fxmartin/local-code-bench/commit/49a11da0b106ca419dc7ed14980b6077b5d0a130))
+
+
 ## v0.38.0 (2026-06-27)
 
 ### Features
