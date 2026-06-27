@@ -1090,7 +1090,10 @@ def test_format_size_renders_human_readable_units() -> None:
     assert _format_size(0) == "0 B"
     assert _format_size(512) == "512 B"
     assert _format_size(1024).endswith("KiB")
+    assert _format_size(5_000_000).endswith("MiB")  # mid-range unit, not B/KiB/GiB
     assert _format_size(1_500_000_000).endswith("GiB")
+    # Sub-byte-boundary values still round to one decimal in their unit.
+    assert _format_size(1536) == "1.5 KiB"
 
 
 # --- helper coverage ---------------------------------------------------------
