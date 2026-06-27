@@ -27,6 +27,7 @@ from ..config import InferencerConfig, StoreFormat
 __all__ = [
     "StoredModel",
     "LocalModel",
+    "SharedModel",
     "scan_inferencer",
     "scan_inferencers",
     "expand_store_path",
@@ -35,6 +36,8 @@ __all__ = [
     "parse_quant",
     "parse_provider",
     "content_identity",
+    "group_models",
+    "shared_models",
 ]
 
 
@@ -162,6 +165,76 @@ def normalize_all(models: Iterable[StoredModel]) -> list[LocalModel]:
     """Normalize every scanned model, preserving order."""
 
     return [normalize(model) for model in models]
+
+
+# --- Sharing detection (Story 11.3-001) -----------------------------------
+
+
+@dataclass(frozen=True)
+class SharedModel:
+    """One logical model and the inferencers that can serve it.
+
+    Built by :func:`group_models`, a logical model is the set of discovered
+    :class:`LocalModel` records that share the same ``(store_format, identity)``
+    key — i.e. the same on-disk artifact (realpath, or Ollama blob sha) in a
+    mutually compatible format. ``inferencers`` is the sorted, de-duplicated set
+    of engines that hold it; a group with more than one is :attr:`is_shared`.
+    Differing formats never merge even if their identities collide, so an
+    incompatible pair is never falsely reported as one model.
+    """
+
+    store_format: StoreFormat
+    identity: str
+    inferencers: tuple[str, ...]
+    models: tuple[LocalModel, ...]
+
+    @property
+    def is_shared(self) -> bool:
+        """True when more than one inferencer can serve this logical model."""
+
+        return len(self.inferencers) > 1
+
+
+def group_models(models: Iterable[LocalModel]) -> list[SharedModel]:
+    """Group normalized models into logical models by ``(store_format, identity)``.
+
+    Two engines pointing at the same HuggingFace cache or the same ``.gguf`` file
+    resolve to one :class:`SharedModel` with both engines listed; models in
+    incompatible formats are never merged because the format is part of the key.
+    Groups are returned in first-seen order; within a group ``models`` preserves
+    input order and ``inferencers`` is sorted and de-duplicated.
+    """
+
+    order: list[tuple[StoreFormat, str]] = []
+    grouped: dict[tuple[StoreFormat, str], list[LocalModel]] = {}
+    for model in models:
+        key = (model.store_format, model.identity)
+        bucket = grouped.get(key)
+        if bucket is None:
+            grouped[key] = bucket = []
+            order.append(key)
+        bucket.append(model)
+
+    result: list[SharedModel] = []
+    for key in order:
+        bucket = grouped[key]
+        store_format, identity = key
+        inferencers = tuple(sorted({m.inferencer for m in bucket}))
+        result.append(
+            SharedModel(
+                store_format=store_format,
+                identity=identity,
+                inferencers=inferencers,
+                models=tuple(bucket),
+            )
+        )
+    return result
+
+
+def shared_models(models: Iterable[LocalModel]) -> list[SharedModel]:
+    """Logical models served by more than one inferencer, in first-seen order."""
+
+    return [group for group in group_models(models) if group.is_shared]
 
 
 #: Recognised GGUF / MLX quantization tokens, e.g. ``Q4_K_M``, ``IQ3_XXS``,
