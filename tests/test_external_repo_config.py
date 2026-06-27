@@ -174,6 +174,35 @@ external_repo:
         load_external_repo(path)
 
 
+def test_load_external_repo_empty_file_is_none(tmp_path) -> None:
+    # An empty YAML document (parses to None) is a valid single-tier config.
+    path = _write(tmp_path, "")
+
+    assert load_external_repo(path) is None
+
+
+def test_load_external_repo_rejects_non_mapping_document(tmp_path) -> None:
+    # A top-level list/scalar is not a config mapping.
+    path = _write(tmp_path, "- just\n- a\n- list\n")
+
+    with pytest.raises(ConfigError, match="top-level mapping"):
+        load_external_repo(path)
+
+
+def test_load_external_repo_rejects_non_mapping_subpaths(tmp_path) -> None:
+    path = _write(
+        tmp_path,
+        """
+external_repo:
+  root: /Volumes/SSD/repo
+  subpaths: just-a-string
+""",
+    )
+
+    with pytest.raises(ConfigError, match="subpaths must be a mapping"):
+        load_external_repo(path)
+
+
 def test_load_external_repo_missing_file(tmp_path) -> None:
     with pytest.raises(ConfigError, match="not found"):
         load_external_repo(tmp_path / "nope.yaml")
