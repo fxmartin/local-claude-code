@@ -70,6 +70,24 @@ def test_check_availability_does_not_raise_on_bad_path() -> None:
     assert status.availability is TierAvailability.OFFLINE
 
 
+def test_check_availability_offline_on_oserror(monkeypatch, tmp_path) -> None:
+    # A filesystem error mid-probe (e.g. an unreadable mount) must degrade to
+    # offline, never propagate — read paths are total.
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / ".lcb-external").write_text("marker", encoding="utf-8")
+
+    def boom(self):
+        raise OSError("stat failed")
+
+    monkeypatch.setattr("pathlib.Path.is_dir", boom)
+
+    status = check_availability(_cfg(str(root)))
+
+    assert status.availability is TierAvailability.OFFLINE
+    assert status.is_mounted is False
+
+
 def test_tilde_root_expands_against_home(tmp_path) -> None:
     home = tmp_path / "home"
     root = home / "ExternalModels"
