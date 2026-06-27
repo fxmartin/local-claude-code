@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.38.0 (2026-06-27)
+
+### Features
+
+- **local-model-inventory**: Normalized localmodel records (#11.2-001)
+  ([`476f0fc`](https://github.com/fxmartin/local-code-bench/commit/476f0fc8df6c2f5d185af1437c818062dad70ae9))
+
+### Testing
+
+- **local-model-inventory**: Normalized localmodel records (#11.2-001)
+  ([`7f7cde5`](https://github.com/fxmartin/local-code-bench/commit/7f7cde5ed1e82ef42ef4202c7f8aa41a7e49c106))
+
+- **local-model-inventory**: Per-inferencer model-store (#11.1-001)
+  ([`3e7e83d`](https://github.com/fxmartin/local-code-bench/commit/3e7e83dbec1756fceb4cf6902ee1f814dbb3df67))
+
+
 ## v0.37.0 (2026-06-26)
 
 ### Features
