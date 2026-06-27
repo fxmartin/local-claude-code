@@ -1887,3 +1887,157 @@ def test_parser_accepts_tier_and_move_actions() -> None:
     for action in ("promote", "demote", "tier"):
         args = build_parser().parse_args(["inferencer", action, "m"])
         assert args.action == action
+
+
+def test_promote_model_not_found_on_external_exits_2(monkeypatch, capsys) -> None:
+    # A non-matching model on the external tier forces _find_named to iterate
+    # and still come up empty, surfacing the "model not found" refusal.
+    other = _ext_model("dflash", "other", "gguf", "/ext/other.gguf", 2000)
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: _ext_cfg())
+    monkeypatch.setattr("local_code_bench.cli.check_availability", lambda c, **k: _mounted(True))
+    monkeypatch.setattr("local_code_bench.cli.scan_external_tier", lambda c, infs, **k: [other])
+
+    exit_code = main(["inferencer", "promote", "qwen"])
+
+    err = capsys.readouterr().err
+    assert exit_code == 2
+    assert "qwen: model not found on the external tier" in err
+
+
+def test_promote_no_inferencer_configured_exits_2(monkeypatch, capsys) -> None:
+    # The model exists externally but its declaring engine has no config to land in.
+    ext = _ext_model("ghost-engine", "qwen", "gguf", "/ext/qwen.gguf", 2000)
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: _ext_cfg())
+    monkeypatch.setattr("local_code_bench.cli.check_availability", lambda c, **k: _mounted(True))
+    monkeypatch.setattr("local_code_bench.cli.scan_external_tier", lambda c, infs, **k: [ext])
+
+    exit_code = main(["inferencer", "promote", "qwen"])
+
+    err = capsys.readouterr().err
+    assert exit_code == 2
+    assert "no inferencer configured to promote it into" in err
+
+
+def test_demote_no_external_repo_exits_2(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: None)
+
+    exit_code = main(["inferencer", "demote", "qwen"])
+
+    err = capsys.readouterr().err
+    assert exit_code == 2
+    assert err.startswith("bench: error:")
+    assert "no external_repo configured" in err
+
+
+def test_demote_missing_name_exits_2(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: _ext_cfg())
+
+    exit_code = main(["inferencer", "demote"])
+
+    err = capsys.readouterr().err
+    assert exit_code == 2
+    assert "demote requires a model name" in err
+
+
+def test_demote_scan_failure_exits_2(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: _ext_cfg())
+
+    def boom(_configs):
+        raise OSError("local store unreadable")
+
+    monkeypatch.setattr("local_code_bench.cli.scan_inferencers", boom)
+
+    exit_code = main(["inferencer", "demote", "qwen"])
+
+    err = capsys.readouterr().err
+    assert exit_code == 2
+    assert "bench: error: local store unreadable" in err
+
+
+def test_tier_no_external_repo_exits_2(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_autotier", lambda _p: _autotier_cfg(max_local_gb=1.0))
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: None)
+
+    exit_code = main(["inferencer", "tier"])
+
+    err = capsys.readouterr().err
+    assert exit_code == 2
+    assert "no external_repo configured" in err
+
+
+def test_tier_scan_failure_exits_2(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_autotier", lambda _p: _autotier_cfg(max_local_gb=1.0))
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: _ext_cfg())
+
+    def boom(_configs):
+        raise OSError("local store unreadable")
+
+    monkeypatch.setattr("local_code_bench.cli.scan_inferencers", boom)
+
+    exit_code = main(["inferencer", "tier"])
+
+    err = capsys.readouterr().err
+    assert exit_code == 2
+    assert "bench: error: local store unreadable" in err
+
+
+def test_tier_within_budget_reports_nothing_to_evict(monkeypatch, capsys) -> None:
+    # One small local model under a generous budget → an empty plan.
+    a = _local_model("dflash", "tiny", "gguf", "/local/tiny.gguf", 1024, identity="id-tiny")
+    monkeypatch.setattr("local_code_bench.cli.load_inferencers", lambda _p: {})
+    monkeypatch.setattr("local_code_bench.cli.load_external_repo", lambda _p: _ext_cfg())
+    monkeypatch.setattr("local_code_bench.cli.load_autotier", lambda _p: _autotier_cfg(max_local_gb=100.0))
+    monkeypatch.setattr("local_code_bench.cli.scan_inferencers", lambda configs: [])
+    monkeypatch.setattr("local_code_bench.cli.normalize_all", lambda stored: [a])
+    monkeypatch.setattr("local_code_bench.cli.check_availability", lambda c, **k: _mounted(True))
+    monkeypatch.setattr("local_code_bench.cli._local_free_bytes", lambda configs: None)
+
+    exit_code = main(["inferencer", "tier"])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "nothing to evict" in out
+
+
+def test_local_free_bytes_probes_first_existing_store(tmp_path) -> None:
+    from local_code_bench.cli import _local_free_bytes
+
+    cfg = InferencerConfig(
+        name="dflash",
+        lifecycle="server",
+        detect_kind="binary",
+        detect_target="dflash",
+        port=1,
+        health_url="http://127.0.0.1:{port}/h",
+        model_store=("/does/not/exist", str(tmp_path)),
+        store_format="gguf",
+    )
+
+    free = _local_free_bytes({"dflash": cfg})
+
+    assert isinstance(free, int)
+    assert free > 0
+
+
+def test_local_free_bytes_returns_none_when_no_store_exists() -> None:
+    from local_code_bench.cli import _local_free_bytes
+
+    cfg = InferencerConfig(
+        name="dflash",
+        lifecycle="server",
+        detect_kind="binary",
+        detect_target="dflash",
+        port=1,
+        health_url="http://127.0.0.1:{port}/h",
+        model_store=("/does/not/exist",),
+        store_format="gguf",
+    )
+
+    assert _local_free_bytes({"dflash": cfg}) is None
