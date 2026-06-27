@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.45.0 (2026-06-27)
+
+### Features
+
+- **tiered-model-storage**: Disk-budget + lru auto-tiering (#12.4-001)
+  ([`1997ce2`](https://github.com/fxmartin/local-code-bench/commit/1997ce2e5313fda51207ec5f988b89056856957f))
+
+### Testing
+
+- **tiered-model-storage**: Disk-budget + lru auto-tiering (#12.4-001)
+  ([`3d3b6c6`](https://github.com/fxmartin/local-code-bench/commit/3d3b6c62c95757ea91457c7837b11d70f9b44707))
+
+
 ## v0.44.0 (2026-06-27)
 
 ### Bug Fixes
