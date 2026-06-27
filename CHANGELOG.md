@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.43.0 (2026-06-27)
+
+### Features
+
+- **tiered-model-storage**: Tier-aware inventory merging (#12.2-001)
+  ([`3c0f184`](https://github.com/fxmartin/local-code-bench/commit/3c0f18438497ac113a8e812a9e3c42c7362020dd))
+
+### Testing
+
+- **tiered-model-storage**: Tier-aware inventory merging (#12.2-001)
+  ([`9ae9df1`](https://github.com/fxmartin/local-code-bench/commit/9ae9df1be443b68999187b7ecd3fd706b5a024de))
+
+
 ## v0.42.0 (2026-06-27)
 
 ### Documentation
