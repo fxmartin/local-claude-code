@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.39.0 (2026-06-27)
+
+### Features
+
+- **local-model-inventory**: Disk footprint and (#11.6-001)
+  ([`79dbd32`](https://github.com/fxmartin/local-code-bench/commit/79dbd32326bbd432567e28724e600b757fa4b67f))
+
+### Testing
+
+- **local-model-inventory**: Disk footprint and (#11.6-001)
+  ([`120e701`](https://github.com/fxmartin/local-code-bench/commit/120e7017254f3d2b1e4b1385ddbf4bdfd747e793))
+
+
 ## v0.38.1 (2026-06-27)
 
 ### Bug Fixes
