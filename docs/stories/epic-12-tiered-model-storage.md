@@ -72,12 +72,22 @@
 **Technical Notes**: Reuse Epic-11's scan strategies and `LocalModel`/sharing logic against the external root; add a `tier` field (kept backward-compatible) and a small merge over content identity. Consider persisting a lightweight external catalog (path, identity, size) so the offline view is non-empty; treat it as a cache, never as truth when the drive is mounted.
 
 **Definition of Done**:
-- [ ] Code implemented and peer reviewed
-- [ ] Tests written and passing
-- [ ] Documentation updated
+- [x] Code implemented and peer reviewed
+- [x] Tests written and passing
+- [x] Documentation updated
 
 **Dependencies**: 12.1-001, 11.2-001, 11.3-001
 **Risk Level**: Medium
+
+**Status**: ✅ Done — `LocalModel` gained a backward-compatible `tier` field and
+`inventory.scan_store` (the per-directory scan unit shared by local and external
+scans). `inferencers/tiered.py` adds the unified view: `scan_external_tier`
+reuses the Epic-11 strategies against the external root, `merge_tiers` collapses
+each logical model to one row keyed tier-independently (Ollama blob sha; else
+`(format, name)`) — flagging `present_in_both` — and `build_tiered_inventory`
+ties it together, persisting a lightweight external catalog when mounted and
+falling back to it (flagged `external_cached`) when the SSD is offline, all
+without error when the drive is unplugged.
 
 ### Feature 12.3: Move Operations (Promote / Demote)
 
@@ -223,5 +233,6 @@
 **Risk Level**: Medium
 
 ## Epic Progress
-**Completed**: 1 / 8 stories · 5 / 39 points
+**Completed**: 2 / 8 stories · 10 / 39 points
 - 12.1-001 — External repo config + mount/availability detection (Should, 5 pts)
+- 12.2-001 — Tier-aware inventory merging local + external stores (Should, 5 pts)

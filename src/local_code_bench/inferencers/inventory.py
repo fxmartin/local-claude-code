@@ -21,15 +21,23 @@ import re
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from ..config import InferencerConfig, StoreFormat
 
+#: Which storage tier a model lives on. ``local`` is the Epic-11 internal-disk
+#: store; ``external`` is the Epic-12 attached-SSD repository. Defaulted to
+#: ``local`` on :class:`LocalModel` so every pre-Epic-12 caller stays valid.
+Tier = Literal["local", "external"]
+
 __all__ = [
+    "Tier",
     "StoredModel",
     "LocalModel",
     "SharedModel",
     "scan_inferencer",
     "scan_inferencers",
+    "scan_store",
     "expand_store_path",
     "normalize",
     "normalize_all",
@@ -101,23 +109,42 @@ def scan_inferencer(
     if cfg.model_store is None or cfg.store_format is None:
         return []
 
-    strategy = _STRATEGIES[cfg.store_format]
     models: list[StoredModel] = []
     for raw in cfg.model_store:
-        base = expand_store_path(raw, home=home)
-        if not base.is_dir():
-            continue
-        for name, path, size in strategy(base):
-            models.append(
-                StoredModel(
-                    inferencer=cfg.name,
-                    store_format=cfg.store_format,
-                    name=name,
-                    path=str(path),
-                    size_bytes=size,
-                )
-            )
+        models.extend(scan_store(raw, cfg.store_format, cfg.name, home=home))
     return models
+
+
+def scan_store(
+    base: str | Path,
+    store_format: StoreFormat,
+    inferencer: str,
+    *,
+    home: Path | None = None,
+) -> list[StoredModel]:
+    """Scan a single store directory with the strategy for ``store_format``.
+
+    The unit of scanning shared by the local per-inferencer scan and the Epic-12
+    external-tier scan (which points the same strategies at the external root's
+    per-format subdirectories). Returns an empty list when ``base`` is missing or
+    not a directory — never raises. ``inferencer`` labels each yielded model with
+    the engine it was found for.
+    """
+
+    path = base if isinstance(base, Path) else expand_store_path(base, home=home)
+    if not path.is_dir():
+        return []
+    strategy = _STRATEGIES[store_format]
+    return [
+        StoredModel(
+            inferencer=inferencer,
+            store_format=store_format,
+            name=name,
+            path=str(found),
+            size_bytes=size,
+        )
+        for name, found, size in strategy(path)
+    ]
 
 
 # --- Normalized inventory record (Story 11.2-001) -------------------------
@@ -133,6 +160,9 @@ class LocalModel:
     ``None`` otherwise. ``identity`` is symlink-stable (``os.path.realpath`` of
     the model file/dir, or the Ollama model-weights blob sha) so two engines
     pointing at the same on-disk artifact resolve to one logical model.
+
+    ``tier`` records which storage tier the model was found on (Epic-12); it
+    defaults to ``local`` so every Epic-11 caller keeps the single-tier shape.
     """
 
     inferencer: str
@@ -143,14 +173,16 @@ class LocalModel:
     quant: str | None
     provider: str | None
     identity: str
+    tier: Tier = "local"
 
 
-def normalize(model: StoredModel) -> LocalModel:
+def normalize(model: StoredModel, *, tier: Tier = "local") -> LocalModel:
     """Turn a raw :class:`StoredModel` into a provenance-carrying :class:`LocalModel`.
 
     Quant and provider are parsed from the model name first, then its path, so a
     token living in either a filename or a parent directory is recognised. Never
-    raises: unparseable provenance degrades to ``None``.
+    raises: unparseable provenance degrades to ``None``. ``tier`` tags the record
+    with the storage tier it came from (defaults to ``local``).
     """
 
     quant = parse_quant(model.name) or parse_quant(model.path)
@@ -164,13 +196,14 @@ def normalize(model: StoredModel) -> LocalModel:
         quant=quant,
         provider=provider,
         identity=content_identity(model),
+        tier=tier,
     )
 
 
-def normalize_all(models: Iterable[StoredModel]) -> list[LocalModel]:
-    """Normalize every scanned model, preserving order."""
+def normalize_all(models: Iterable[StoredModel], *, tier: Tier = "local") -> list[LocalModel]:
+    """Normalize every scanned model onto ``tier``, preserving order."""
 
-    return [normalize(model) for model in models]
+    return [normalize(model, tier=tier) for model in models]
 
 
 # --- Sharing detection (Story 11.3-001) -----------------------------------
