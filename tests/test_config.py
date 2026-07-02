@@ -342,6 +342,41 @@ agents:
     assert agents["custom"].url == "https://example.test/dummy"
 
 
+def test_load_agents_parses_claude_code_gateway_fields(tmp_path) -> None:
+    config_path = tmp_path / "agents.yaml"
+    config_path.write_text(
+        """
+agents:
+  - name: claude-local-gateway
+    type: claude-code
+    command: claude
+    sandbox: workspace-write
+    timeout_seconds: 30
+    model: local-qwen
+    url: https://code.claude.com/docs
+    anthropic_base_url: http://127.0.0.1:4000
+    anthropic_api_key_env: LOCAL_GATEWAY_KEY
+""",
+        encoding="utf-8",
+    )
+
+    agents = load_agents(config_path)
+
+    assert agents["claude-local-gateway"].type == "claude-code"
+    assert agents["claude-local-gateway"].url == "https://code.claude.com/docs"
+    assert agents["claude-local-gateway"].anthropic_base_url == "http://127.0.0.1:4000"
+    assert agents["claude-local-gateway"].anthropic_api_key_env == "LOCAL_GATEWAY_KEY"
+
+
+def test_default_agents_config_loads_claude_code_entries() -> None:
+    agents = load_agents("configs/agents.yaml")
+
+    assert agents["claude-code"].type == "claude-code"
+    assert agents["claude-code"].url == "https://code.claude.com/docs"
+    assert agents["claude-code-local-gateway"].anthropic_base_url == "http://127.0.0.1:4000"
+    assert agents["claude-code-local-gateway"].anthropic_api_key_env == "ANTHROPIC_API_KEY"
+
+
 def test_load_agents_reports_invalid_timeout(tmp_path) -> None:
     config_path = tmp_path / "agents.yaml"
     config_path.write_text(
@@ -529,7 +564,7 @@ agents:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="supported types: codex"):
+    with pytest.raises(ConfigError, match=r"supported types: .*claude-code.*codex"):
         load_agents(config_path)
 
 
