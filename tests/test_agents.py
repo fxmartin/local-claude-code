@@ -489,6 +489,101 @@ def test_qwen_code_adapter_builds_headless_json_command(tmp_path) -> None:
     ]
 
 
+def test_qwen_code_adapter_omits_optional_flags_for_disabled_sandbox(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("qwen-local", "qwen-code", "qwen", "disabled", 10)
+
+    command = adapter_for("qwen-code").build_command(agent, workspace)
+
+    assert command == [
+        "qwen",
+        "--prompt",
+        workspace.instructions.read_text(encoding="utf-8"),
+        "--output-format",
+        "json",
+        "--approval-mode",
+        "auto-edit",
+    ]
+
+
+def test_qwen_code_environment_omits_missing_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("QWEN_MISSING_API_KEY", raising=False)
+    agent = AgentConfig(
+        "qwen-local",
+        "qwen-code",
+        "qwen",
+        "workspace-write",
+        10,
+        model="local-qwen",
+        base_url="http://127.0.0.1:8000/v1",
+        api_key_env="QWEN_MISSING_API_KEY",
+    )
+
+    build_environment = getattr(adapter_for("qwen-code"), "build_environment")
+
+    assert build_environment(agent) == {
+        "OPENAI_BASE_URL": "http://127.0.0.1:8000/v1",
+        "OPENAI_MODEL": "local-qwen",
+    }
+
+
+def test_qwen_code_parse_result_preserves_plain_text_output(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("qwen", "qwen-code", "qwen", "workspace-write", 10)
+    completed = subprocess.CompletedProcess(["qwen"], 0, stdout="not json\n", stderr="")
+
+    parsed = adapter_for("qwen-code").parse_result(agent, workspace, completed)
+
+    assert parsed == {"final_message": "not json", "cost_status": "unavailable"}
+
+
+def test_qwen_code_parse_result_sums_usage_token_fields(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("qwen", "qwen-code", "qwen", "workspace-write", 10)
+    stdout = json.dumps(
+        [
+            "ignored",
+            {
+                "result": "done",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 4,
+                    "cache_creation_input_tokens": 5,
+                    "cache_read_input_tokens": 6,
+                    "prompt_tokens": 7,
+                    "completion_tokens": 8,
+                },
+            },
+        ]
+    )
+    completed = subprocess.CompletedProcess(["qwen"], 0, stdout=stdout, stderr="")
+
+    parsed = adapter_for("qwen-code").parse_result(agent, workspace, completed)
+
+    assert parsed["final_message"] == "done"
+    assert parsed["tokens"] == {"total": 33, "estimated": False}
+    assert parsed["cost_status"] == "tokens_available"
+
+
+def test_qwen_code_parse_result_marks_usage_without_tokens_unavailable(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("qwen", "qwen-code", "qwen", "workspace-write", 10)
+    completed = subprocess.CompletedProcess(
+        ["qwen"],
+        0,
+        stdout=json.dumps({"usage": {"total_tokens": False}}),
+        stderr="",
+    )
+
+    parsed = adapter_for("qwen-code").parse_result(agent, workspace, completed)
+
+    assert parsed == {"usage": {"total_tokens": False}, "cost_status": "unavailable"}
+
+
 def test_run_qwen_code_task_with_fake_executable_scores_solution_and_usage(
     tmp_path, monkeypatch
 ) -> None:
