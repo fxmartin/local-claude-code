@@ -145,6 +145,15 @@ def test_claude_code_adapter_builds_locked_down_print_command(tmp_path) -> None:
     assert "--dangerously-skip-permissions" not in command
 
 
+def test_claude_code_adapter_requires_configured_model(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("claude-frontier", "claude-code", "claude", "workspace-write", 10)
+
+    with pytest.raises(ValueError, match="claude-code agents require a configured model"):
+        adapter_for("claude-code").build_command(agent, workspace)
+
+
 def test_claude_code_parse_result_records_cost_and_usage(tmp_path) -> None:
     task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
     workspace = materialize_task_workspace(task, parent=tmp_path)
@@ -168,6 +177,61 @@ def test_claude_code_parse_result_records_cost_and_usage(tmp_path) -> None:
         "usage": {"input_tokens": 100, "output_tokens": 25},
         "cost_status": "cost_available",
     }
+
+
+def test_claude_code_parse_result_marks_usage_without_cost(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("claude-frontier", "claude-code", "claude", "workspace-write", 10)
+    completed = subprocess.CompletedProcess(
+        ["claude"],
+        0,
+        stdout='{"result":"done","usage":{"input_tokens":100,"output_tokens":25}}',
+        stderr="",
+    )
+
+    parsed = adapter_for("claude-code").parse_result(agent, workspace, completed)
+
+    assert parsed == {
+        "final_message": "done",
+        "usage": {"input_tokens": 100, "output_tokens": 25},
+        "cost_status": "usage_available",
+    }
+
+
+def test_claude_code_parse_result_reads_json_from_last_valid_output_line(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("claude-frontier", "claude-code", "claude", "workspace-write", 10)
+    completed = subprocess.CompletedProcess(
+        ["claude"],
+        0,
+        stdout='{"result":"done"}\nnot-json',
+        stderr="",
+    )
+
+    parsed = adapter_for("claude-code").parse_result(agent, workspace, completed)
+
+    assert parsed == {
+        "final_message": "done",
+        "cost_status": "unavailable",
+    }
+
+
+def test_claude_code_parse_result_ignores_malformed_or_non_object_output(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("claude-frontier", "claude-code", "claude", "workspace-write", 10)
+
+    for stdout in ("not-json\nstill-not-json", '["not", "an", "object"]'):
+        completed = subprocess.CompletedProcess(["claude"], 0, stdout=stdout, stderr="")
+
+        parsed = adapter_for("claude-code").parse_result(agent, workspace, completed)
+
+        assert parsed == {
+            "final_message": "",
+            "cost_status": "unavailable",
+        }
 
 
 def test_claude_code_parse_result_marks_missing_usage_unavailable(tmp_path) -> None:
@@ -202,6 +266,42 @@ def test_claude_code_parse_result_marks_missing_usage_unavailable(tmp_path) -> N
             "api_key_env": "LOCAL_GATEWAY_KEY",
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("base_url", "api_key_env", "expected_gateway"),
+    [
+        (
+            "http://127.0.0.1:4000",
+            None,
+            {"enabled": True, "anthropic_base_url": "http://127.0.0.1:4000"},
+        ),
+        ("", "LOCAL_GATEWAY_KEY", {"enabled": True, "api_key_env": "LOCAL_GATEWAY_KEY"}),
+    ],
+)
+def test_claude_code_parse_result_records_partial_gateway_config(
+    tmp_path,
+    base_url: str,
+    api_key_env: str | None,
+    expected_gateway: dict[str, object],
+) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig(
+        "claude-local",
+        "claude-code",
+        "claude",
+        "workspace-write",
+        10,
+        model="local-qwen",
+        anthropic_base_url=base_url,
+        anthropic_api_key_env=api_key_env,
+    )
+    completed = subprocess.CompletedProcess(["claude"], 0, stdout='{"result":"done"}', stderr="")
+
+    parsed = adapter_for("claude-code").parse_result(agent, workspace, completed)
+
+    assert parsed["claude_code_gateway"] == expected_gateway
 
 
 def test_run_agent_task_with_fake_claude_records_json_metadata_and_gateway_env(
