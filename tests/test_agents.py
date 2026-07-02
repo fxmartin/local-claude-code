@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from local_code_bench.agents import (
+    adapter_for,
     build_codex_command,
     completed_agent_pairs,
+    detect_agent_installation,
     extract_codex_total_tokens,
     materialize_task_workspace,
+    run_agent_task,
 )
 from local_code_bench.agents import run_codex_task
 from local_code_bench.config import AgentConfig
@@ -42,6 +45,24 @@ def test_build_codex_command_uses_explicit_sandbox(tmp_path) -> None:
     assert "--skip-git-repo-check" in command
     assert "--model" in command
     assert "--profile" in command
+
+
+def test_codex_adapter_command_matches_legacy_builder(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig(
+        "codex",
+        "codex",
+        "codex",
+        "workspace-write",
+        10,
+        model="gpt-5",
+        profile="default",
+    )
+
+    assert adapter_for("codex").build_command(agent, workspace) == build_codex_command(
+        agent, workspace
+    )
 
 
 def test_run_codex_task_with_fake_executable_scores_solution(tmp_path) -> None:
@@ -85,6 +106,28 @@ def test_run_codex_task_with_fake_executable_scores_solution(tmp_path) -> None:
     assert messages == ["codex suite/1: passed"]
 
 
+def test_run_agent_task_uses_registered_codex_adapter(tmp_path) -> None:
+    fake = tmp_path / "codex"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\n"
+        "Path('solution.py').write_text('def add(a, b):\\n    return a + b\\n')\n"
+        "args = __import__('sys').argv\n"
+        "Path(args[args.index('--output-last-message') + 1]).write_text('done')\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert add(1, 2) == 3", "add", "v")
+    agent = AgentConfig("codex", "codex", str(fake), "workspace-write", 10)
+    result_path = tmp_path / "agent.jsonl"
+
+    record = run_agent_task(agent=agent, task=task, result_path=result_path)
+
+    assert record["passed"] is True
+    assert record["final_message"] == "done"
+    assert record["cost_status"] == "unavailable"
+
+
 def test_extract_codex_total_tokens_from_stderr() -> None:
     stderr = "some log\n\ntokens used\n13,029\n"
 
@@ -117,6 +160,23 @@ def test_run_codex_task_records_executable_not_found(tmp_path) -> None:
     assert record["cost_status"] == "unavailable"
     assert read_jsonl(result_path)[0]["failure_reason"] == record["failure_reason"]
     assert messages == ["codex suite/1: failed"]
+
+
+def test_detect_agent_installation_reports_missing_command_and_url(tmp_path) -> None:
+    agent = AgentConfig(
+        "codex",
+        "codex",
+        str(tmp_path / "missing-codex"),
+        "workspace-write",
+        10,
+        url="https://github.com/openai/codex",
+    )
+
+    detection = detect_agent_installation(agent)
+
+    assert detection.installed is False
+    assert detection.path is None
+    assert detection.url == "https://github.com/openai/codex"
 
 
 def test_extract_codex_total_tokens_returns_none_without_usage() -> None:
