@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.47.0 (2026-07-02)
+
+### Features
+
+- **additional-agent-harnesses**: Generalize the (#14.1-001)
+  ([`b185234`](https://github.com/fxmartin/local-code-bench/commit/b185234c1d5169bc60a154e88243905f74274569))
+
+### Testing
+
+- **additional-agent-harnesses**: Generalize the (#14.1-001)
+  ([`d9540e8`](https://github.com/fxmartin/local-code-bench/commit/d9540e88d01263ea016abe8cb3f10ad25453b9e0))
+
+
 ## v0.46.0 (2026-06-27)
 
 ### Features
