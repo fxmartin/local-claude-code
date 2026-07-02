@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+
+import pytest
+
+from local_code_bench.agents import AgentWorkspace
 from local_code_bench.agents import (
     adapter_for,
     build_codex_command,
@@ -7,6 +13,7 @@ from local_code_bench.agents import (
     detect_agent_installation,
     extract_codex_total_tokens,
     materialize_task_workspace,
+    register_agent_adapter,
     run_agent_task,
 )
 from local_code_bench.agents import run_codex_task
@@ -63,6 +70,54 @@ def test_codex_adapter_command_matches_legacy_builder(tmp_path) -> None:
     assert adapter_for("codex").build_command(agent, workspace) == build_codex_command(
         agent, workspace
     )
+
+
+def test_adapter_for_unknown_type_lists_registered_harnesses() -> None:
+    with pytest.raises(ValueError, match="unknown agent harness type 'missing'.*codex"):
+        adapter_for("missing")
+
+
+def test_register_agent_adapter_restores_previous_adapter() -> None:
+    original = adapter_for("codex")
+
+    class ReplacementAdapter:
+        kind = "codex"
+
+        def build_command(self, agent: AgentConfig, workspace: AgentWorkspace) -> list[str]:
+            return ["replacement"]
+
+        def parse_result(
+            self,
+            agent: AgentConfig,
+            workspace: AgentWorkspace,
+            completed: subprocess.CompletedProcess[str],
+        ) -> dict[str, object]:
+            return {"cost_status": "unavailable"}
+
+        def detect(self, agent: AgentConfig):
+            raise NotImplementedError
+
+    replacement = ReplacementAdapter()
+
+    with register_agent_adapter(replacement):
+        assert adapter_for("codex") is replacement
+
+    assert adapter_for("codex") is original
+
+
+def test_codex_adapter_reports_failure_without_final_message(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("codex", "codex", "codex", "workspace-write", 10)
+    completed = subprocess.CompletedProcess(["codex"], 7, stdout="", stderr="no usage")
+
+    parsed = adapter_for("codex").parse_result(agent, workspace, completed)
+
+    assert parsed == {
+        "final_message": "",
+        "failure_reason": "codex exit 7",
+        "cost_status": "unavailable",
+    }
 
 
 def test_run_codex_task_with_fake_executable_scores_solution(tmp_path) -> None:
@@ -125,6 +180,78 @@ def test_run_agent_task_uses_registered_codex_adapter(tmp_path) -> None:
 
     assert record["passed"] is True
     assert record["final_message"] == "done"
+    assert record["cost_status"] == "unavailable"
+
+
+def test_run_agent_task_uses_adapter_failure_reason_and_can_retain_workspace(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert add(1, 2) == 3", "add", "v")
+    agent = AgentConfig("custom", "custom", sys.executable, "workspace-write", 10)
+    result_path = tmp_path / "agent.jsonl"
+
+    class FailingAdapter:
+        kind = "custom"
+        workspace: AgentWorkspace | None = None
+
+        def build_command(self, agent: AgentConfig, workspace: AgentWorkspace) -> list[str]:
+            self.workspace = workspace
+            return [agent.command, "-c", "import sys; sys.exit(9)"]
+
+        def parse_result(
+            self,
+            agent: AgentConfig,
+            workspace: AgentWorkspace,
+            completed: subprocess.CompletedProcess[str],
+        ) -> dict[str, object]:
+            return {"failure_reason": "custom adapter rejected output", "cost_status": "unavailable"}
+
+        def detect(self, agent: AgentConfig):
+            raise NotImplementedError
+
+    adapter = FailingAdapter()
+
+    with register_agent_adapter(adapter):
+        record = run_agent_task(
+            agent=agent,
+            task=task,
+            result_path=result_path,
+            retain_workspace=True,
+        )
+
+    assert record["passed"] is False
+    assert record["failure_reason"] == "custom adapter rejected output"
+    assert record["exit_code"] == 9
+    assert adapter.workspace is not None
+    assert adapter.workspace.root.exists()
+
+
+def test_run_agent_task_records_timeout_for_registered_harness(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    agent = AgentConfig("slow", "slow", sys.executable, "workspace-write", 0.01)
+    result_path = tmp_path / "agent.jsonl"
+
+    class SlowAdapter:
+        kind = "slow"
+
+        def build_command(self, agent: AgentConfig, workspace: AgentWorkspace) -> list[str]:
+            return [agent.command, "-c", "import time; time.sleep(5)"]
+
+        def parse_result(
+            self,
+            agent: AgentConfig,
+            workspace: AgentWorkspace,
+            completed: subprocess.CompletedProcess[str],
+        ) -> dict[str, object]:
+            raise AssertionError("timeout should bypass result parsing")
+
+        def detect(self, agent: AgentConfig):
+            raise NotImplementedError
+
+    with register_agent_adapter(SlowAdapter()):
+        record = run_agent_task(agent=agent, task=task, result_path=result_path)
+
+    assert record["passed"] is False
+    assert record["failure_reason"] == "slow timeout"
+    assert record["exit_code"] is None
     assert record["cost_status"] == "unavailable"
 
 
