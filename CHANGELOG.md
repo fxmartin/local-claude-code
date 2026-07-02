@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.50.0 (2026-07-02)
+
+### Features
+
+- **inferencers**: Add omlx engine
+  ([`1a528af`](https://github.com/fxmartin/local-code-bench/commit/1a528afc18cf87a6335206221153780a32a6606b))
+
+
 ## v0.49.0 (2026-07-02)
 
 ### Features
