@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -135,6 +137,73 @@ class CodexAdapter:
 _ADAPTERS[CodexAdapter.kind] = CodexAdapter()
 
 
+class ClaudeCodeAdapter:
+    kind = "claude-code"
+    default_url = "https://code.claude.com/docs"
+
+    def build_command(self, agent: AgentConfig, workspace: AgentWorkspace) -> list[str]:
+        if not agent.model:
+            raise ValueError("claude-code agents require a configured model")
+        return [
+            agent.command,
+            "-p",
+            workspace.instructions.read_text(encoding="utf-8"),
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "dontAsk",
+            "--allowedTools",
+            "Read,Edit,Bash",
+            "--model",
+            agent.model,
+            "--bare",
+        ]
+
+    def parse_result(
+        self,
+        agent: AgentConfig,
+        workspace: AgentWorkspace,
+        completed: subprocess.CompletedProcess[str],
+    ) -> dict[str, object]:
+        fields: dict[str, object] = {}
+        payload = _parse_json_object(completed.stdout)
+        if isinstance(payload.get("result"), str):
+            fields["final_message"] = payload["result"]
+        else:
+            fields["final_message"] = ""
+        if isinstance(payload.get("session_id"), str):
+            fields["session_id"] = payload["session_id"]
+        if isinstance(payload.get("usage"), dict):
+            fields["usage"] = payload["usage"]
+        if isinstance(payload.get("total_cost_usd"), int | float):
+            fields["total_cost_usd"] = float(payload["total_cost_usd"])
+            fields["cost_status"] = "cost_available"
+        elif "usage" in fields:
+            fields["cost_status"] = "usage_available"
+        else:
+            fields["cost_status"] = "unavailable"
+        gateway = _claude_gateway_fields(agent)
+        if gateway is not None:
+            fields["claude_code_gateway"] = gateway
+        if completed.returncode != 0:
+            fields["failure_reason"] = f"claude-code exit {completed.returncode}"
+        return fields
+
+    def detect(self, agent: AgentConfig) -> AgentInstallation:
+        path = shutil.which(agent.command)
+        return AgentInstallation(
+            name=agent.name,
+            type=agent.type,
+            command=agent.command,
+            installed=path is not None,
+            path=path,
+            url=agent.url or self.default_url,
+        )
+
+
+_ADAPTERS[ClaudeCodeAdapter.kind] = ClaudeCodeAdapter()
+
+
 def completed_agent_pairs(result_path: Path) -> set[tuple[str, str]]:
     if not result_path.exists():
         return set()
@@ -189,13 +258,14 @@ def run_agent_task(
     adapter = adapter_for(agent.type)
     command = adapter.build_command(agent, workspace)
     try:
-        completed = subprocess.run(
+        completed = subprocess.run(  # noqa: S603 - configured benchmark CLI, no shell.
             command,
             cwd=workspace.root,
             capture_output=True,
             text=True,
             timeout=agent.timeout_seconds,
             check=False,
+            env=_agent_environment(agent),
         )
         wall_time = perf_counter() - started
         parsed = adapter.parse_result(agent, workspace, completed)
@@ -303,3 +373,43 @@ def extract_codex_total_tokens(stderr: str) -> int | None:
     if not match:
         return None
     return int(match.group(1).replace(",", ""))
+
+
+def _parse_json_object(output: str) -> dict[str, object]:
+    text = output.strip()
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        for line in reversed(text.splitlines()):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+        else:
+            return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _claude_gateway_fields(agent: AgentConfig) -> dict[str, object] | None:
+    if not agent.anthropic_base_url and not agent.anthropic_api_key_env:
+        return None
+    gateway: dict[str, object] = {"enabled": True}
+    if agent.anthropic_base_url:
+        gateway["anthropic_base_url"] = agent.anthropic_base_url
+    if agent.anthropic_api_key_env:
+        gateway["api_key_env"] = agent.anthropic_api_key_env
+    return gateway
+
+
+def _agent_environment(agent: AgentConfig) -> dict[str, str] | None:
+    updates: dict[str, str] = {}
+    if agent.anthropic_base_url:
+        updates["ANTHROPIC_BASE_URL"] = agent.anthropic_base_url
+    if agent.anthropic_api_key_env and agent.anthropic_api_key_env in os.environ:
+        updates["ANTHROPIC_API_KEY"] = os.environ[agent.anthropic_api_key_env]
+    if not updates:
+        return None
+    return {**os.environ, **updates}

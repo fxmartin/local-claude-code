@@ -4,3 +4,19 @@ agents:
     command: codex
     sandbox: workspace-write
     timeout_seconds: 600
+  - name: claude-code
+    type: claude-code
+    command: claude
+    sandbox: workspace-write
+    timeout_seconds: 600
+    model: claude-sonnet-4-6
+    url: https://code.claude.com/docs
+  - name: claude-code-local-gateway
+    type: claude-code
+    command: claude
+    sandbox: workspace-write
+    timeout_seconds: 600
+    model: local-model
+    url: https://code.claude.com/docs
+    anthropic_base_url: http://127.0.0.1:4000
+    anthropic_api_key_env: ANTHROPIC_API_KEY

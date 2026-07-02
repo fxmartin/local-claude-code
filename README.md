@@ -263,13 +263,25 @@ metadata such as `model`, `profile`, and `url`. The harness validates `type`
 against the adapter registry, rejects unknown kinds with the supported list, and
 only detects installed CLIs read-only from `command`; it never installs an agent.
 
-Codex is the first registered adapter. A bounded run materializes each task into
-an isolated workspace, invokes `codex exec` with the configured sandbox, then
-scores the resulting `solution.py` with the same tests as endpoint runs:
+Codex and Claude Code are registered adapters. A bounded run materializes each
+task into an isolated workspace, invokes the selected CLI with the configured
+sandbox/permission flags, then scores the resulting `solution.py` with the same
+tests as endpoint runs:
 
 ```bash
 uv run bench --mode agent --agent codex --suite humaneval --limit 3
+uv run bench --mode agent --agent claude-code --suite humaneval --limit 3
 ```
+
+The default `claude-code` entry is a cloud frontier baseline using Anthropic's
+Claude Code CLI (`claude`) with `--output-format json`; JSONL records include
+the final result, `session_id`, and `total_cost_usd`/`usage` when Claude Code
+reports them. `claude-code-local-gateway` is intentionally separate: Claude Code
+does not target local OpenAI-compatible endpoints directly, so local-model runs
+must go through an Anthropic-compatible gateway exposed with
+`ANTHROPIC_BASE_URL` and an API key read from `anthropic_api_key_env`. Gateway
+runs are flagged in the record and report `cost_status=unavailable` when usage
+or cost is absent.
 
 ## OpenCode Benchmark
 

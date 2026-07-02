@@ -120,6 +120,181 @@ def test_codex_adapter_reports_failure_without_final_message(tmp_path) -> None:
     }
 
 
+def test_claude_code_adapter_builds_locked_down_print_command(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig(
+        "claude-frontier",
+        "claude-code",
+        "claude",
+        "workspace-write",
+        10,
+        model="claude-sonnet-4-6",
+    )
+
+    command = adapter_for("claude-code").build_command(agent, workspace)
+
+    assert command[0] == "claude"
+    assert "-p" in command
+    assert workspace.instructions.read_text(encoding="utf-8") in command
+    assert command[command.index("--output-format") + 1] == "json"
+    assert command[command.index("--permission-mode") + 1] == "dontAsk"
+    assert command[command.index("--allowedTools") + 1] == "Read,Edit,Bash"
+    assert command[command.index("--model") + 1] == "claude-sonnet-4-6"
+    assert "--bare" in command
+    assert "--dangerously-skip-permissions" not in command
+
+
+def test_claude_code_parse_result_records_cost_and_usage(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig("claude-frontier", "claude-code", "claude", "workspace-write", 10)
+    completed = subprocess.CompletedProcess(
+        ["claude"],
+        0,
+        stdout=(
+            '{"type":"result","result":"done","session_id":"sess_123",'
+            '"total_cost_usd":0.0142,"usage":{"input_tokens":100,"output_tokens":25}}'
+        ),
+        stderr="",
+    )
+
+    parsed = adapter_for("claude-code").parse_result(agent, workspace, completed)
+
+    assert parsed == {
+        "final_message": "done",
+        "session_id": "sess_123",
+        "total_cost_usd": 0.0142,
+        "usage": {"input_tokens": 100, "output_tokens": 25},
+        "cost_status": "cost_available",
+    }
+
+
+def test_claude_code_parse_result_marks_missing_usage_unavailable(tmp_path) -> None:
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    workspace = materialize_task_workspace(task, parent=tmp_path)
+    agent = AgentConfig(
+        "claude-local",
+        "claude-code",
+        "claude",
+        "workspace-write",
+        10,
+        model="local-qwen",
+        anthropic_base_url="http://127.0.0.1:4000",
+        anthropic_api_key_env="LOCAL_GATEWAY_KEY",
+    )
+    completed = subprocess.CompletedProcess(
+        ["claude"],
+        0,
+        stdout='{"type":"result","result":"done","session_id":"sess_local"}',
+        stderr="",
+    )
+
+    parsed = adapter_for("claude-code").parse_result(agent, workspace, completed)
+
+    assert parsed == {
+        "final_message": "done",
+        "session_id": "sess_local",
+        "cost_status": "unavailable",
+        "claude_code_gateway": {
+            "enabled": True,
+            "anthropic_base_url": "http://127.0.0.1:4000",
+            "api_key_env": "LOCAL_GATEWAY_KEY",
+        },
+    }
+
+
+def test_run_agent_task_with_fake_claude_records_json_metadata_and_gateway_env(
+    tmp_path, monkeypatch
+) -> None:
+    fake = tmp_path / "claude"
+    env_capture = tmp_path / "env.txt"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os\n"
+        "from pathlib import Path\n"
+        "Path('solution.py').write_text('def add(a, b):\\n    return a + b\\n')\n"
+        f"Path({str(env_capture)!r}).write_text("
+        "os.environ.get('ANTHROPIC_BASE_URL', '') + '\\n' + "
+        "os.environ.get('ANTHROPIC_API_KEY', ''))\n"
+        "print('{\"result\":\"done\",\"session_id\":\"sess_abc\","
+        "\"total_cost_usd\":0.02,\"usage\":{\"input_tokens\":5,\"output_tokens\":6}}')\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    monkeypatch.setenv("LOCAL_GATEWAY_KEY", "secret-value")
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert add(1, 2) == 3", "add", "v")
+    agent = AgentConfig(
+        "claude-local",
+        "claude-code",
+        str(fake),
+        "workspace-write",
+        10,
+        model="local-qwen",
+        anthropic_base_url="http://127.0.0.1:4000",
+        anthropic_api_key_env="LOCAL_GATEWAY_KEY",
+    )
+    result_path = tmp_path / "agent.jsonl"
+
+    record = run_agent_task(agent=agent, task=task, result_path=result_path)
+
+    assert record["passed"] is True
+    assert record["final_message"] == "done"
+    assert record["session_id"] == "sess_abc"
+    assert record["total_cost_usd"] == 0.02
+    assert record["usage"] == {"input_tokens": 5, "output_tokens": 6}
+    assert record["cost_status"] == "cost_available"
+    assert record["claude_code_gateway"]["enabled"] is True
+    assert "secret-value" not in str(read_jsonl(result_path)[0])
+    assert env_capture.read_text(encoding="utf-8") == "http://127.0.0.1:4000\nsecret-value"
+
+
+def test_run_agent_task_records_claude_nonzero_as_infra_failure(tmp_path) -> None:
+    fake = tmp_path / "claude"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "sys.stderr.write('gateway unavailable')\n"
+        "sys.exit(17)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    task = BenchmarkTask("suite/1", "humaneval", "prompt", "assert True", "solution", "v")
+    agent = AgentConfig(
+        "claude-frontier",
+        "claude-code",
+        str(fake),
+        "workspace-write",
+        10,
+        model="claude-sonnet-4-6",
+    )
+    result_path = tmp_path / "agent.jsonl"
+
+    record = run_agent_task(agent=agent, task=task, result_path=result_path)
+
+    assert record["passed"] is False
+    assert record["failure_reason"] == "claude-code exit 17"
+    assert record["exit_code"] == 17
+    assert record["cost_status"] == "unavailable"
+
+
+def test_detect_claude_code_installation_reports_missing_command_and_docs_url(tmp_path) -> None:
+    agent = AgentConfig(
+        "claude-frontier",
+        "claude-code",
+        str(tmp_path / "missing-claude"),
+        "workspace-write",
+        10,
+        model="claude-sonnet-4-6",
+    )
+
+    detection = detect_agent_installation(agent)
+
+    assert detection.installed is False
+    assert detection.path is None
+    assert detection.url == "https://code.claude.com/docs"
+
+
 def test_run_codex_task_with_fake_executable_scores_solution(tmp_path) -> None:
     fake = tmp_path / "codex"
     fake.write_text(

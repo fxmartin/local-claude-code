@@ -53,6 +53,8 @@ class AgentConfig:
     model: str | None = None
     profile: str | None = None
     url: str | None = None
+    anthropic_base_url: str | None = None
+    anthropic_api_key_env: str | None = None
 
 
 Lifecycle = Literal["server", "app"]
@@ -484,6 +486,8 @@ def _parse_agent(entry: Any, index: int) -> AgentConfig:
         model=_optional_str(entry, "model", index, root="agents"),
         profile=_optional_str(entry, "profile", index, root="agents"),
         url=_optional_str(entry, "url", index, root="agents"),
+        anthropic_base_url=_optional_str(entry, "anthropic_base_url", index, root="agents"),
+        anthropic_api_key_env=_optional_str(entry, "anthropic_api_key_env", index, root="agents"),
     )
 
 
