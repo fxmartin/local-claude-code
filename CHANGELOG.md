@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.49.0 (2026-07-02)
+
+### Features
+
+- **additional-agent-harnesses**: Qwen code agent harness (#14.3-001)
+  ([`dbea0b8`](https://github.com/fxmartin/local-code-bench/commit/dbea0b8c9a9aa8a96dbaa79d4530f7f233f9b08d))
+
+### Testing
+
+- **additional-agent-harnesses**: Qwen code agent harness (#14.3-001)
+  ([`7746747`](https://github.com/fxmartin/local-code-bench/commit/774674796c30ae36ba80de0c80a416c97dc42e19))
+
+
 ## v0.48.0 (2026-07-02)
 
 ### Features
